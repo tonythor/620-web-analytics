@@ -1,0 +1,210 @@
+---
+title: "Assignment 1: Hello World Graph"
+author: "Tony Fraser"
+date: "28 Jan 2025"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    self_contained: true
+python: 
+  jupyter: data622
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{=html}
+<style>
+
+
+<style>
+/* Your existing styles */
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Add these new styles for code blocks */
+pre > code.sourceCode { 
+    white-space: pre; 
+    position: relative; 
+}
+
+pre > code.sourceCode > span { 
+    display: inline-block; 
+    line-height: 1.25; 
+}
+
+div.sourceCode { 
+    margin: 1em 0; 
+    background-color: #f8f8f8;  /* Light gray background */
+    border: 1px solid #ddd;     /* Light border */
+    border-radius: 4px;         /* Rounded corners */
+    padding: 1em;               /* Inner spacing */
+}
+
+pre.sourceCode { 
+    margin: 0; 
+}
+
+@media screen {
+    div.sourceCode { 
+        overflow: auto; 
+    }
+}
+
+code.sourceCode > span { 
+    color: inherit; 
+    text-decoration: inherit; 
+}
+
+/* Rest of your existing styles */
+body {
+    width: 900px;
+    font-family: Arial, sans-serif;
+    margin: 0 auto;
+    background-color: white;
+}
+
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.quarto-title-meta-heading {
+    font-weight: bold;
+}
+
+.quarto-title-meta-contents {
+    margin-right: 20px;
+}
+
+
+/* Flexbox container for title and author */
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px; /* Add space below the header */
+}
+
+.header-container h1 {
+    margin: 0;
+    font-size: 2.5em;
+}
+
+.header-container .meta-info {
+    text-align: right; /* Align the meta information to the right */
+    font-size: 1.2em;
+    margin: 0;
+}
+
+h2, h3, h4, h5, h6 {
+    font-family: Arial, sans-serif;
+    margin: 0 0 10px 0; /* Reduce the bottom margin */
+    padding: 0; /* Remove padding */
+    line-height: 1.2; /* Control the line spacing */
+}
+
+/* Adjust table and image styles */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    overflow-x: auto;
+    display: block;
+}
+
+table, th, td {
+    border: 1px solid lightgray;
+    padding: 8px;
+    text-align: left;
+}
+
+th {
+    background-color: #f2f2f2;
+}
+
+/* Custom figure sizing */
+.figure {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+</style>
+```
+<a href="github" target=_new>github</a>
+```{python initial}
+import networkx as nx
+import matplotlib.pyplot as plt
+import base64
+from io import BytesIO
+from IPython.display import HTML
+
+def create_kite_network():
+    """
+    Creates the Krackhardt kite network and returns a base64 encoded image for Quarto.    
+    Returns: HTML : IPython.display.HTML
+    """
+
+    G = nx.Graph()    
+    nodes = ['Andre', 'Beverly', 'Carol', 'Diane', 'Ed', 'Fernando', 'Garth', 'Heather', 'Ike', 'Jane']
+    G.add_nodes_from(nodes)
+
+    edges = [
+        ('Andre', 'Carol'), ('Andre', 'Diane'), ('Andre', 'Beverly'),
+        ('Beverly', 'Diane'), ('Beverly', 'Ed'),
+        ('Carol', 'Diane'), ('Carol', 'Fernando'),
+        ('Diane', 'Ed'), ('Diane', 'Fernando'), ('Diane', 'Garth'),
+        ('Ed', 'Garth'),
+        ('Fernando', 'Garth'), ('Fernando', 'Heather'),
+        ('Garth', 'Heather'),
+        ('Heather', 'Ike'),
+        ('Ike', 'Jane')
+    ]
+
+    G.add_edges_from(edges)
+    
+    pos = nx.spring_layout(G, k=1, iterations=50)
+    
+    plt.figure(figsize=(10, 8))
+    nx.draw(G, pos, 
+            with_labels=True,
+            node_color='lightgray',
+            node_size=1500,
+            font_size=10,
+            font_weight='bold',
+            edge_color='purple',
+            width=2)
+    
+    plt.title("Krackhardt Kite Network")
+    plt.axis('off')
+    
+    #This is hack, quarto to rpubs doesn't do images, you have to encode it into the html file directly.
+    buf = BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=300)
+    plt.close()
+    img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    img_html = f'<img src="data:image/png;base64,{img_base64}" alt="Krackhardt Kite Network" />'
+    return HTML(img_html)
+
+
+network_plot = create_kite_network()
+network_plot
+```

@@ -169,3 +169,13 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+*nogit*
+*trash* 
+data620_assignment1.html
+data620_assignment1_files/*
+data620_assignment2.html
+data620_assignment2_files/*
+data620_assignment3.html
+data620_assignment3_files/*
+rsconnect/
