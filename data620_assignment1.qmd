@@ -149,7 +149,7 @@ img {
 }
 </style>
 ```
-<a href="github" target=_new>github</a>
+<a href="https://github.com/tonythor/620-web-analytics" target="_blank" rel="noopener noreferrer">github</a>
 ```{python initial}
 import networkx as nx
 import matplotlib.pyplot as plt
