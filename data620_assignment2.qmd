@@ -1,0 +1,306 @@
+---
+title: "Assignment 2: California Fire Hotspots"
+author: "Tony Fraser and Mark Gonsalves "
+date: "11 FEB 2025"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    self_contained: true
+python: 
+  jupyter: data622
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{=html}
+<style>
+
+
+<style>
+/* Your existing styles */
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Add these new styles for code blocks */
+pre > code.sourceCode { 
+    white-space: pre; 
+    position: relative; 
+}
+
+pre > code.sourceCode > span { 
+    display: inline-block; 
+    line-height: 1.25; 
+}
+
+div.sourceCode { 
+    margin: 1em 0; 
+    background-color: #f8f8f8;  /* Light gray background */
+    border: 1px solid #ddd;     /* Light border */
+    border-radius: 4px;         /* Rounded corners */
+    padding: 1em;               /* Inner spacing */
+}
+
+pre.sourceCode { 
+    margin: 0; 
+}
+
+@media screen {
+    div.sourceCode { 
+        overflow: auto; 
+    }
+}
+
+code.sourceCode > span { 
+    color: inherit; 
+    text-decoration: inherit; 
+}
+
+/* Rest of your existing styles */
+body {
+    width: 900px;
+    font-family: Arial, sans-serif;
+    margin: 0 auto;
+    background-color: white;
+}
+
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.quarto-title-meta-heading {
+    font-weight: bold;
+}
+
+.quarto-title-meta-contents {
+    margin-right: 20px;
+}
+
+
+/* Flexbox container for title and author */
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px; /* Add space below the header */
+}
+
+.header-container h1 {
+    margin: 0;
+    font-size: 2.5em;
+}
+
+.header-container .meta-info {
+    text-align: right; /* Align the meta information to the right */
+    font-size: 1.2em;
+    margin: 0;
+}
+
+h2, h3, h4, h5, h6 {
+    font-family: Arial, sans-serif;
+    margin: 0 0 10px 0; /* Reduce the bottom margin */
+    padding: 0; /* Remove padding */
+    line-height: 1.2; /* Control the line spacing */
+}
+
+/* Adjust table and image styles */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    overflow-x: auto;
+    display: block;
+}
+
+table, th, td {
+    border: 1px solid lightgray;
+    padding: 8px;
+    text-align: left;
+}
+
+th {
+    background-color: #f2f2f2;
+}
+
+/* Custom figure sizing */
+.figure {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+</style>
+```
+<a href="https://github.com/tonythor/620-web-analytics" target="_blank" rel="noopener noreferrer">github</a>
+
+## Datasource overview 
+- This is the **CAL FIRE Damage Inspection Program (DINS)**  database of structures damaged or destroyed by wildland fires in California **since 2013**, as documented by CAL FIRE and partnering agencies. Structures damaged before 2013 do not have a digital record. Fires in LRA (Local Responsibility Area) or FRA (Federal Responsibility Area) responsibility areas may or may not be included.  
+- Starting in 2018, the DINS program began collecting data on all structures (damaged and non-damaged). Before 2018, only damaged/destroyed structures were recorded.
+- This database includes structures impacted by wildland fire that are **inside or within 100 meters** of the fire perimeter. Structure type, construction features, and defensible space attributes are determined as accurately as possible, even when the structure is completely destroyed. Some attributes may be missing if they could not be determined.   
+- Fire damage and poor access can limit inspections. While all inspections follow a systematic process, some impacted structures may not be identified, leading to a small margin of error.  
+- The database contains two address fields:  
+  - Field-determined address:Street number, street name, and street type, entered by the inspector based on on-site observations.  
+  - Parcel-based address: Address (parcel) and APN (parcel), added througha spatial join after data collection.  
+
+## Datasource statistics
+- Rows: 130,717
+- Columns: 46
+- Update Frequency: Monthly or after a big fire
+- Coverage: 2013 to
+- Last Update: February 11, 2025, 4:07 PM (UTC-08:00)
+- URL: https://data.ca.gov/dataset/cal-fire-damage-inspection-dins-data
+
+## Load and preview 
+```{python initial}
+import os
+import pandas as pd
+import networkx as nx
+from geopy.distance import geodesic
+from data620.helpers.glimpse import glimpse
+from data620.helpers.dins_utils import clean_column_names
+
+dins = clean_column_names(pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv"))
+```
+
+### Preview using glimpse
+```{python glimpse}
+glimpse(dins)
+```
+
+### Preview using df.head()
+(you can scroll right)
+```{python head}
+dins.head()
+```
+
+## Set up the graph
+Each property is a node, and nodes are connected if they are within 500 meters of each other. Like our actor analogy from class, a highly connected house is one with many nearby houses that were also inspected, potentially indicating a fire-affected area. This network will highlight densely packed neighborhoods rather than truly fire-damaged zones, but let’s see what patterns emerge.
+
+This took a ridiculous amount of time to run, so we cached it in a pickle file.  
+```{python build_graph}
+
+class FireDamageGraph:
+    """Singleton class for loading, building, and caching a fire damage network graph."""
+    CACHE_FILE = "nogit_fire_graph.gpickle" #<- graph pickle, optimized for this, who knew?! 
+    INSTANCE = None  
+    
+    def __new__(cls):
+        """Implements the Singleton pattern to ensure only one instance exists."""
+        if cls.INSTANCE is None:
+            cls.INSTANCE = super(FireDamageGraph, cls).__new__(cls)
+            cls.INSTANCE.graph = cls.INSTANCE.get_graph()
+        return cls.INSTANCE
+
+    def get_graph(self):
+        """Loads the graph from cache if available; otherwise, builds and caches it."""
+        if os.path.exists(self.CACHE_FILE):
+            print("Loading cached graph...")
+            return nx.read_gpickle(self.CACHE_FILE)
+        else:
+            return self.build_graph()
+
+    def build_graph(self):
+        """Builds the fire damage graph from the dataset and caches it."""
+        print("Building graph from scratch...")
+        
+        df = clean_column_names(pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv"))
+        
+        G = nx.Graph()
+
+        # Add properties as nodes
+        for _, row in df.iterrows():
+            node_id = row["object_id"]
+            G.add_node(node_id, 
+                       latitude=row["latitude"], 
+                       longitude=row["longitude"], 
+                       damage=row["damage"], 
+                       structure_type=row["structure_type"], 
+                       incident=row["incident_name"]
+                      )
+
+        # Function to compute geodesic distance
+        def get_distance(node1, node2):
+            coord1 = (G.nodes[node1]["latitude"], G.nodes[node1]["longitude"])
+            coord2 = (G.nodes[node2]["latitude"], G.nodes[node2]["longitude"])
+            return geodesic(coord1, coord2).meters  # Distance in meters
+
+        distance_threshold = 500  
+
+        # Create edges based on proximity
+        node_list = list(G.nodes)
+        for i, node1 in enumerate(node_list):
+            for node2 in node_list[i + 1:]:  # Avoid duplicate comparisons
+                dist = get_distance(node1, node2)
+                if dist < distance_threshold:
+                    G.add_edge(node1, node2, weight=dist)
+
+        # Save graph to cache
+        nx.write_gpickle(G, self.CACHE_FILE)
+        print("Graph saved to cache.")
+        
+        return G
+
+fire_graph = FireDamageGraph()
+G = fire_graph.graph 
+print(f"Graph has {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
+```
+## Show the top 30 hotspots 
+```{python show_centrality}
+# Calculate degree centrality (how many connections a node has)
+degree_centrality = nx.degree_centrality(G)
+
+# Convert to a DataFrame
+top_nodes = pd.DataFrame(degree_centrality.items(), columns=["object_id", "centrality"])
+
+# Merge with fire data to get incident name and damage type
+top_nodes = top_nodes.merge(df[["object_id", "incident_name", "damage", "latitude", "longitude"]], on="object_id")
+
+# Sort by centrality and show the top 30
+top_30 =  top_nodes.sort_values(by="centrality", ascending=False).head(30)
+top_30
+```
+
+## Show top 200 values on a map
+```{python show_map}
+import folium
+
+# Get top 200 most connected properties
+top_200 = top_nodes.sort_values(by="centrality", ascending=False).head(200)
+
+# Create a folium map centered around the first entry
+m = folium.Map(location=[top_200.iloc[0]["latitude"], top_200.iloc[0]["longitude"]], zoom_start=10)
+
+# Add nodes to the map
+for _, row in top_200.iterrows():
+    folium.CircleMarker(
+        location=(row["latitude"], row["longitude"]),
+        radius=row["centrality"] * 20,  # Scale size based on centrality
+        color="red",
+        fill=True,
+        fill_color="red",
+        fill_opacity=0.6,
+        popup=f"ID: {row['object_id']}<br>Fire: {row['incident_name']}<br>Damage: {row['damage']}<br>Centrality: {row['centrality']:.4f}",
+    ).add_to(m)
+
+# Show the map
+m
+
+```
