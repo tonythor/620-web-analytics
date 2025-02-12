@@ -173,11 +173,10 @@ img {
 import os
 import pandas as pd
 import networkx as nx
+from scipy.spatial import cKDTree
 from geopy.distance import geodesic
 from data620.helpers.glimpse import glimpse
 from data620.helpers.dins_utils import clean_column_names
-
-dins = clean_column_names(pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv"))
 ```
 
 ### Preview using glimpse
@@ -196,11 +195,10 @@ Each property is a node, and nodes are connected if they are within 500 meters o
 
 This took a ridiculous amount of time to run, so we cached it in a pickle file.  
 ```{python build_graph}
-
 class FireDamageGraph:
     """Singleton class for loading, building, and caching a fire damage network graph."""
-    CACHE_FILE = "nogit_fire_graph.gpickle" #<- graph pickle, optimized for this, who knew?! 
-    INSTANCE = None  
+    CACHE_FILE = "nogit_fire_graph.gpickle"
+    INSTANCE = None
     
     def __new__(cls):
         """Implements the Singleton pattern to ensure only one instance exists."""
@@ -208,7 +206,7 @@ class FireDamageGraph:
             cls.INSTANCE = super(FireDamageGraph, cls).__new__(cls)
             cls.INSTANCE.graph = cls.INSTANCE.get_graph()
         return cls.INSTANCE
-
+    
     def get_graph(self):
         """Loads the graph from cache if available; otherwise, builds and caches it."""
         if os.path.exists(self.CACHE_FILE):
@@ -216,46 +214,57 @@ class FireDamageGraph:
             return nx.read_gpickle(self.CACHE_FILE)
         else:
             return self.build_graph()
-
+    
     def build_graph(self):
         """Builds the fire damage graph from the dataset and caches it."""
         print("Building graph from scratch...")
         
+        # Load and clean data
         df = (
             pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv")
-            .pipe(clean_column_names)  
-            .assign(latitude=lambda x: x["latitude"].round(5),  
-                    longitude=lambda x: x["longitude"].round(5))
+            .pipe(clean_column_names)
+            .assign(
+                latitude=lambda x: x["latitude"].round(6),
+                longitude=lambda x: x["longitude"].round(6)
+            )
         )
 
         G = nx.Graph()
-
-        for _, row in df.iterrows():
-            node_id = row["object_id"]
-            G.add_node(node_id, 
-                       latitude=row["latitude"], 
-                       longitude=row["longitude"], 
-                       damage=row["damage"], 
-                       structure_type=row["structure_type"], 
-                       incident=row["incident_name"]
-                      )
-
-        # Function to compute geodesic distance
-        def get_distance(node1, node2):
-            coord1 = (G.nodes[node1]["latitude"], G.nodes[node1]["longitude"])
-            coord2 = (G.nodes[node2]["latitude"], G.nodes[node2]["longitude"])
-            return geodesic(coord1, coord2).meters  # Distance in meters
-
-        distance_threshold = 500  
-
-        # Create edges based on proximity
-        node_list = list(G.nodes)
-        for i, node1 in enumerate(node_list):
-            for node2 in node_list[i + 1:]:  # Avoid duplicate comparisons
-                dist = get_distance(node1, node2)
-                if dist < distance_threshold:
-                    G.add_edge(node1, node2, weight=dist)
-
+        node_data = {
+            row["object_id"]: {
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                "damage": row["damage"],
+                "structure_type": row["structure_type"],
+                "incident": row["incident_name"]
+            }
+            for _, row in df.iterrows()
+        }
+        G.add_nodes_from(node_data.items())
+        
+        # Use KD-tree for efficient nearest neighbor search
+        coords = np.array([[data["latitude"], data["longitude"]] 
+                          for data in node_data.values()])
+        tree = cKDTree(coords)
+        # Find all pairs of points within distance_threshold
+        # The conversion factor 111000 comes from a useful approximation: 1 degree of latitude is approximately 
+        # 111 kilometers (or 111,000 meters) at the equator. This is because: Earth's circumference is about 40,075 km
+        # There are 360 degrees in a circle, 40,075 / 360 ≈ 111 km per degree
+        distance_threshold = 500 / 111000  # =<- meters to degrees (approximate)
+        pairs = tree.query_pairs(distance_threshold, output_type='ndarray')
+        
+        # Add edges
+        node_ids = list(node_data.keys())
+        edges = [
+            (node_ids[i], node_ids[j], 
+             {"weight": geodesic(
+                 (coords[i][0], coords[i][1]), 
+                 (coords[j][0], coords[j][1])
+             ).meters})
+            for i, j in pairs
+        ]
+        G.add_edges_from(edges)
+        
         # Save graph to cache
         nx.write_gpickle(G, self.CACHE_FILE)
         print("Graph saved to cache.")
@@ -263,8 +272,10 @@ class FireDamageGraph:
         return G
 
 fire_graph = FireDamageGraph()
-G = fire_graph.graph 
+G = fire_graph.graph
+
 print(f"Graph has {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
+
 ```
 ## Show the top 30 hotspots 
 ```{python show_centrality}
