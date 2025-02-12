@@ -172,11 +172,14 @@ img {
 ```{python initial}
 import os
 import pandas as pd
+import numpy as np
 import networkx as nx
 from scipy.spatial import cKDTree
 from geopy.distance import geodesic
 from data620.helpers.glimpse import glimpse
 from data620.helpers.dins_utils import clean_column_names
+
+dins =  pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv")
 ```
 
 ### Preview using glimpse
@@ -201,81 +204,98 @@ class FireDamageGraph:
     INSTANCE = None
     
     def __new__(cls):
-        """Implements the Singleton pattern to ensure only one instance exists."""
         if cls.INSTANCE is None:
             cls.INSTANCE = super(FireDamageGraph, cls).__new__(cls)
-            cls.INSTANCE.graph = cls.INSTANCE.get_graph()
+            cls.INSTANCE.graph = None  # Initialize graph as None
+            cls.INSTANCE.df = None     # Store DataFrame reference
+            cls.INSTANCE.get_graph()   # Load or build the graph
         return cls.INSTANCE
     
     def get_graph(self):
         """Loads the graph from cache if available; otherwise, builds and caches it."""
         if os.path.exists(self.CACHE_FILE):
             print("Loading cached graph...")
-            return nx.read_gpickle(self.CACHE_FILE)
+            self.graph = nx.read_gpickle(self.CACHE_FILE)
         else:
-            return self.build_graph()
+            print("Building graph from scratch...")
+            self.build_graph()
+        return self.graph
     
     def build_graph(self):
         """Builds the fire damage graph from the dataset and caches it."""
-        print("Building graph from scratch...")
-        
-        # Load and clean data
-        df = (
-            pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv")
-            .pipe(clean_column_names)
-            .assign(
-                latitude=lambda x: x["latitude"].round(6),
-                longitude=lambda x: x["longitude"].round(6)
+        try:
+            # Load and clean data
+            self.df = (
+                dins
+                .pipe(clean_column_names)
+                .assign(
+                    latitude=lambda x: x["latitude"].round(6),
+                    longitude=lambda x: x["longitude"].round(6)
+                )
             )
-        )
+            print(f"Loaded {len(self.df)} rows of data")
 
-        G = nx.Graph()
-        node_data = {
-            row["object_id"]: {
-                "latitude": row["latitude"],
-                "longitude": row["longitude"],
-                "damage": row["damage"],
-                "structure_type": row["structure_type"],
-                "incident": row["incident_name"]
+            G = nx.Graph()
+            
+            # Create node data dictionary
+            print("Creating nodes...")
+            node_data = {
+                row["object_id"]: {
+                    "latitude": row["latitude"],
+                    "longitude": row["longitude"],
+                    "damage": row["damage"],
+                    "structure_type": row["structure_type"],
+                    "incident": row["incident_name"]
+                }
+                for _, row in self.df.iterrows()
             }
-            for _, row in df.iterrows()
-        }
-        G.add_nodes_from(node_data.items())
-        
-        # Use KD-tree for efficient nearest neighbor search
-        coords = np.array([[data["latitude"], data["longitude"]] 
-                          for data in node_data.values()])
-        tree = cKDTree(coords)
-        # Find all pairs of points within distance_threshold
-        # The conversion factor 111000 comes from a useful approximation: 1 degree of latitude is approximately 
-        # 111 kilometers (or 111,000 meters) at the equator. This is because: Earth's circumference is about 40,075 km
-        # There are 360 degrees in a circle, 40,075 / 360 ≈ 111 km per degree
-        distance_threshold = 500 / 111000  # =<- meters to degrees (approximate)
-        pairs = tree.query_pairs(distance_threshold, output_type='ndarray')
-        
-        # Add edges
-        node_ids = list(node_data.keys())
-        edges = [
-            (node_ids[i], node_ids[j], 
-             {"weight": geodesic(
-                 (coords[i][0], coords[i][1]), 
-                 (coords[j][0], coords[j][1])
-             ).meters})
-            for i, j in pairs
-        ]
-        G.add_edges_from(edges)
-        
-        # Save graph to cache
-        nx.write_gpickle(G, self.CACHE_FILE)
-        print("Graph saved to cache.")
-        
-        return G
+            G.add_nodes_from(node_data.items())
+            print(f"Added {len(node_data)} nodes")
+            
+            # Use KD-tree for efficient nearest neighbor search
+            print("Building KD-tree...")
+            coords = np.array([[data["latitude"], data["longitude"]] 
+                             for data in node_data.values()])
+            tree = cKDTree(coords)
+            
+            distance_threshold = 500 / 111000  # meters to degrees approximation
+            print("Finding pairs within threshold...")
+            pairs = tree.query_pairs(distance_threshold, output_type='ndarray')
+            print(f"Found {len(pairs)} pairs within threshold")
+            
+            # Add edges
+            print("Adding edges...")
+            node_ids = list(node_data.keys())
+            edges = [
+                (node_ids[i], node_ids[j], 
+                 {"weight": geodesic(
+                     (coords[i][0], coords[i][1]), 
+                     (coords[j][0], coords[j][1])
+                 ).meters})
+                for i, j in pairs
+            ]
+            G.add_edges_from(edges)
+            print(f"Added {len(edges)} edges")
+            
+            # Save graph to cache
+            print("Saving graph to cache...")
+            nx.write_gpickle(G, self.CACHE_FILE)
+            print("Graph saved to cache.")
+            
+            self.graph = G
+            
+        except Exception as e:
+            print(f"Error building graph: {str(e)}")
+            raise
 
+# Create instance
 fire_graph = FireDamageGraph()
+
+# Use the stored DataFrame for the centrality calculation
+df = fire_graph.df
 G = fire_graph.graph
 
 print(f"Graph has {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
-
 ```
 ## Show the top 30 hotspots 
 ```{python show_centrality}
@@ -317,5 +337,4 @@ for _, row in top_200.iterrows():
 
 # Show the map
 m
-
 ```
