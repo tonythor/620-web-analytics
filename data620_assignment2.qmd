@@ -221,11 +221,15 @@ class FireDamageGraph:
         """Builds the fire damage graph from the dataset and caches it."""
         print("Building graph from scratch...")
         
-        df = clean_column_names(pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv"))
-        
+        df = (
+            pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv")
+            .pipe(clean_column_names)  
+            .assign(latitude=lambda x: x["latitude"].round(5),  
+                    longitude=lambda x: x["longitude"].round(5))
+        )
+
         G = nx.Graph()
 
-        # Add properties as nodes
         for _, row in df.iterrows():
             node_id = row["object_id"]
             G.add_node(node_id, 
