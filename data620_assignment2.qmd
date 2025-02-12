@@ -174,6 +174,7 @@ import os
 import pandas as pd
 import numpy as np
 import networkx as nx
+import pickle
 from scipy.spatial import cKDTree
 from geopy.distance import geodesic
 from data620.helpers.glimpse import glimpse
@@ -206,24 +207,26 @@ class FireDamageGraph:
     def __new__(cls):
         if cls.INSTANCE is None:
             cls.INSTANCE = super(FireDamageGraph, cls).__new__(cls)
-            cls.INSTANCE.graph = None  # Initialize graph as None
-            cls.INSTANCE.df = None     # Store DataFrame reference
-            cls.INSTANCE.get_graph()   # Load or build the graph
+            cls.INSTANCE.graph = None
+            cls.INSTANCE.df = None
+            cls.INSTANCE.get_graph()
         return cls.INSTANCE
     
     def get_graph(self):
         """Loads the graph from cache if available; otherwise, builds and caches it."""
         if os.path.exists(self.CACHE_FILE):
             print("Loading cached graph...")
-            self.graph = nx.read_gpickle(self.CACHE_FILE)
+            with open(self.CACHE_FILE, 'rb') as f:
+                self.graph = pickle.load(f)
         else:
-            print("Building graph from scratch...")
             self.build_graph()
         return self.graph
     
     def build_graph(self):
         """Builds the fire damage graph from the dataset and caches it."""
         try:
+            print("Building graph from scratch...")
+            
             # Load and clean data
             self.df = (
                 dins
@@ -237,7 +240,6 @@ class FireDamageGraph:
 
             G = nx.Graph()
             
-            # Create node data dictionary
             print("Creating nodes...")
             node_data = {
                 row["object_id"]: {
@@ -252,18 +254,16 @@ class FireDamageGraph:
             G.add_nodes_from(node_data.items())
             print(f"Added {len(node_data)} nodes")
             
-            # Use KD-tree for efficient nearest neighbor search
             print("Building KD-tree...")
             coords = np.array([[data["latitude"], data["longitude"]] 
                              for data in node_data.values()])
             tree = cKDTree(coords)
             
-            distance_threshold = 500 / 111000  # meters to degrees approximation
+            distance_threshold = 500 / 111000
             print("Finding pairs within threshold...")
             pairs = tree.query_pairs(distance_threshold, output_type='ndarray')
             print(f"Found {len(pairs)} pairs within threshold")
             
-            # Add edges
             print("Adding edges...")
             node_ids = list(node_data.keys())
             edges = [
@@ -277,9 +277,10 @@ class FireDamageGraph:
             G.add_edges_from(edges)
             print(f"Added {len(edges)} edges")
             
-            # Save graph to cache
+            # Save graph to cache using pickle
             print("Saving graph to cache...")
-            nx.write_gpickle(G, self.CACHE_FILE)
+            with open(self.CACHE_FILE, 'wb') as f:
+                pickle.dump(G, f)
             print("Graph saved to cache.")
             
             self.graph = G
@@ -287,7 +288,6 @@ class FireDamageGraph:
         except Exception as e:
             print(f"Error building graph: {str(e)}")
             raise
-
 # Create instance
 fire_graph = FireDamageGraph()
 
@@ -299,42 +299,19 @@ print(f"Graph has {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
 ```
 ## Show the top 30 hotspots 
 ```{python show_centrality}
-# Calculate degree centrality (how many connections a node has)
 degree_centrality = nx.degree_centrality(G)
 
 # Convert to a DataFrame
 top_nodes = pd.DataFrame(degree_centrality.items(), columns=["object_id", "centrality"])
 
-# Merge with fire data to get incident name and damage type
-top_nodes = top_nodes.merge(df[["object_id", "incident_name", "damage", "latitude", "longitude"]], on="object_id")
+# Merge with fire data to get incident name, damage type, and address
+top_nodes = top_nodes.merge(
+    df[["object_id", "incident_name", "damage", "latitude", "longitude", "site_address"]], 
+    on="object_id"
+)
 
 # Sort by centrality and show the top 30
-top_30 =  top_nodes.sort_values(by="centrality", ascending=False).head(30)
+top_30 = top_nodes.sort_values(by="centrality", ascending=False).head(30)
 top_30
 ```
 
-## Show top 200 values on a map
-```{python show_map}
-import folium
-
-# Get top 200 most connected properties
-top_200 = top_nodes.sort_values(by="centrality", ascending=False).head(200)
-
-# Create a folium map centered around the first entry
-m = folium.Map(location=[top_200.iloc[0]["latitude"], top_200.iloc[0]["longitude"]], zoom_start=10)
-
-# Add nodes to the map
-for _, row in top_200.iterrows():
-    folium.CircleMarker(
-        location=(row["latitude"], row["longitude"]),
-        radius=row["centrality"] * 20,  # Scale size based on centrality
-        color="red",
-        fill=True,
-        fill_color="red",
-        fill_opacity=0.6,
-        popup=f"ID: {row['object_id']}<br>Fire: {row['incident_name']}<br>Damage: {row['damage']}<br>Centrality: {row['centrality']:.4f}",
-    ).add_to(m)
-
-# Show the map
-m
-```
