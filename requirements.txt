@@ -9,4 +9,5 @@ nltk
 networkx
 jupyterlab
 jupyter
-
+pyarrow
+folium
