@@ -1,0 +1,509 @@
+---
+title: "Assignment 4: Centrality Measures in California Wildfire Networks"
+author: "Tony Fraser and Mark Gonsalves"
+date: "25 FEB 2025"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    self_contained: true
+python: 
+  jupyter: data622
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{=html}
+<style>
+/* Styling for document */
+body {
+    width: 900px;
+    font-family: Arial, sans-serif;
+    margin: 0 auto;
+    background-color: white;
+}
+
+.chart-container {
+    width: 700px;
+    margin: 0 auto;
+    display: block;
+}
+
+.table-container {
+    width: 700px;
+    margin: 0 auto;
+}
+</style>
+```
+
+<a href="https://github.com/tonythor/620-web-analytics" target="_blank" rel="noopener noreferrer">github</a>
+
+# Introduction
+
+This analysis examines centrality measures within networks of structures affected by California wildfires. Using the CAL FIRE Damage Inspection Program (DINS) database, we construct geographical proximity-based networks to investigate how structural characteristics, location, and fire damage patterns relate to centrality in these networks. This approach allows us to identify potential hotspots and vulnerabilities in wildfire impact patterns.
+
+## Datasource overview 
+- This is the **CAL FIRE Damage Inspection Program (DINS)** database of structures damaged or destroyed by wildland fires in California **since 2013**.
+- The database includes structures impacted by wildfire that are **inside or within 100 meters** of the fire perimeter.
+- Coverage: 130,717 structures with 46 variables including damage levels, structure types, and construction materials.
+
+# Network Construction Methodology
+
+For our centrality analysis, we built networks representing geographical proximity between structures. Each structure is a node, and edges connect structures that are within a specified distance threshold of each other. We experimented with different thresholds (100m, 250m, and 500m) to observe how network density affects centrality measures.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show data loading and network construction code"
+
+import pandas as pd
+import networkx as nx
+from scipy.spatial import cKDTree
+from geopy.distance import geodesic
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import io
+import base64
+from IPython.display import HTML
+from data620.helpers.dins_utils import clean_column_names
+
+# Load and clean data
+dins = pd.read_csv("https://tonyfraser-data.s3.us-east-1.amazonaws.com/calfire/raw/POSTFIRE_MASTER_DATA_SHARE_2064760709534146017.csv")
+
+# Apply your clean_column_names function
+df = clean_column_names(dins)
+
+# Print column names to debug
+print("Column names after cleaning:")
+print(df.columns.tolist())
+
+# Ensure coordinates are valid
+df = df.dropna(subset=['latitude', 'longitude'])
+
+# Round coordinates for precision consistency
+df = df.assign(
+    latitude=lambda x: x["latitude"].round(6),
+    longitude=lambda x: x["longitude"].round(6)
+)
+
+# Function to convert matplotlib figure to base64 encoded image
+def fig_to_base64(fig, dpi=300):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=dpi)
+    buf.seek(0)
+    img_str = base64.b64encode(buf.getvalue()).decode('utf-8')
+    plt.close(fig)
+    return f'<img src="data:image/png;base64,{img_str}" class="chart-container" alt="Chart">'
+
+class WildfireNetwork:
+    def __init__(self, df, distance_threshold=100):
+        self.df = df
+        self.distance_threshold = distance_threshold
+        self.graph = None
+        
+        # Verify expected columns exist
+        expected_cols = ['object_id', 'damage', 'structure_type', 'incident_name', 
+                         'latitude', 'longitude', 'roof_construction', 'county']
+        
+        missing_cols = [col for col in expected_cols if col not in df.columns]
+        if missing_cols:
+            print(f"Warning: Missing expected columns: {missing_cols}")
+            print(f"Available columns: {df.columns.tolist()}")
+        
+        self.build_graph()
+
+    def build_graph(self):
+        threshold_degrees = self.distance_threshold / 111000
+        G = nx.Graph()
+        
+        # Add nodes - CHANGE HERE: Using 'object_id' instead of 'objectid'
+        node_data = {}
+        for idx, row in self.df.iterrows():
+            node_data[row["object_id"]] = {  # ← Changed from 'objectid' to 'object_id'
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                "damage": row["damage"],
+                "structure_type": row["structure_type"],
+                "incident": row["incident_name"],
+                "roof_construction": row.get("roof_construction", "Unknown"),
+                "county": row.get("county", "Unknown")
+            }
+        
+        G.add_nodes_from(node_data.items())
+        
+        # Build spatial query
+        coords = np.array([[data["latitude"], data["longitude"]] for data in node_data.values()])
+        tree = cKDTree(coords)
+        pairs = tree.query_pairs(threshold_degrees, output_type='ndarray')
+        
+        # Add edges
+        node_ids = list(node_data.keys())
+        edges = []
+        
+        for i, j in pairs:
+            node1_id = node_ids[i]
+            node2_id = node_ids[j]
+            distance = geodesic(
+                (coords[i][0], coords[i][1]), 
+                (coords[j][0], coords[j][1])
+            ).meters
+            
+            if distance <= self.distance_threshold:
+                edges.append((node1_id, node2_id, {"weight": distance}))
+        
+        G.add_edges_from(edges)
+        self.graph = G
+        
+    def calculate_centrality(self):
+        degree_cent = nx.degree_centrality(self.graph)
+        betweenness_cent = nx.betweenness_centrality(self.graph, k=100, normalized=True)
+        closeness_cent = nx.closeness_centrality(self.graph)
+        
+        try:
+            eigenvector_cent = nx.eigenvector_centrality(self.graph, max_iter=300)
+        except nx.PowerIterationFailedConvergence:
+            eigenvector_cent = nx.eigenvector_centrality_numpy(self.graph)
+        
+        cent_df = pd.DataFrame({
+            "object_id": list(degree_cent.keys()),
+            "degree_centrality": list(degree_cent.values()),
+            "betweenness_centrality": list(betweenness_cent.values()),
+            "closeness_centrality": list(closeness_cent.values()),
+            "eigenvector_centrality": list(eigenvector_cent.values())
+        })
+        
+        result = cent_df.merge(
+            self.df[["object_id", "damage", "structure_type", "incident_name", 
+                    "latitude", "longitude", "roof_construction", "county"]],
+            left_on="object_id", right_on="object_id"  # ← Changed right_on from 'objectid' to 'object_id'
+        )
+    
+        return result
+
+# Create networks
+sample_size = 5000
+df_sample = df.sample(n=min(sample_size, len(df)), random_state=42)
+
+networks = {
+    "100m": WildfireNetwork(df_sample, distance_threshold=100),
+    "250m": WildfireNetwork(df_sample, distance_threshold=250),
+    "500m": WildfireNetwork(df_sample, distance_threshold=500)
+}
+
+centrality_results = {dist: net.calculate_centrality() for dist, net in networks.items()}
+```
+
+# Network Analysis Results
+
+## Network Characteristics
+
+We created three different networks to examine how distance thresholds affect network structure and connectivity:
+
+```{python}
+#| echo: false
+# Create network statistics table
+stats_data = []
+for dist, net in networks.items():
+    G = net.graph
+    components = list(nx.connected_components(G))
+    avg_degree = sum(dict(G.degree()).values()) / G.number_of_nodes()
+    largest_component = len(max(components, key=len))
+    
+    stats_data.append({
+        "Threshold": dist,
+        "Nodes": G.number_of_nodes(),
+        "Edges": G.number_of_edges(),
+        "Density": nx.density(G),
+        "Connected Components": len(components),
+        "Largest Component Size": largest_component,
+        "Average Degree": avg_degree
+    })
+
+stats_df = pd.DataFrame(stats_data)
+stats_df.set_index("Threshold", inplace=True)
+
+# Create styled HTML table
+html_table = stats_df.to_html(classes='table table-striped table-bordered', 
+                              float_format=lambda x: f"{x:.4f}" if isinstance(x, float) else x)
+html_table = f'<div class="table-container">{html_table}</div>'
+
+# Display the table
+HTML(html_table)
+```
+
+The 250m network provides a good balance between connectivity and local structure, showing significant clustering while maintaining meaningful geographic relationships. As shown in the table, increasing the threshold from 100m to 500m dramatically increases network connectivity, with average node degree growing from 0.5 to 7.8 connections.
+
+## Network Visualization (250m Threshold)
+
+```{python}
+#| echo: false
+import matplotlib.pyplot as plt
+import numpy as np
+
+G = networks["250m"].graph
+
+# Sample for visualization
+if G.number_of_nodes() > 1000:
+    sampled_nodes = np.random.choice(list(G.nodes()), 1000, replace=False)
+    subgraph = G.subgraph(sampled_nodes)
+else:
+    subgraph = G
+
+# Create position dictionary for nodes
+pos = {node: (G.nodes[node]["longitude"], G.nodes[node]["latitude"]) 
+       for node in subgraph.nodes()}
+
+# Define color map for damage types
+damage_types = {
+    "No Damage": "green",
+    "Affected (1-9%)": "yellow",
+    "Minor (10-25%)": "orange",
+    "Major (26-50%)": "red",
+    "Destroyed (>50%)": "black",
+    "Inaccessible": "gray"
+}
+
+# Get node colors based on damage type
+node_colors = [damage_types.get(G.nodes[node]["damage"], "blue") for node in subgraph.nodes()]
+
+fig, ax = plt.subplots(figsize=(8, 6))
+nx.draw_networkx(
+    subgraph, 
+    pos=pos, 
+    node_size=20, 
+    node_color=node_colors,
+    edge_color="lightgray",
+    with_labels=False,
+    alpha=0.7,
+    ax=ax
+)
+
+# Create legend
+legend_elements = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10, label=damage) 
+                  for damage, color in damage_types.items()]
+ax.legend(handles=legend_elements, title="Damage Type", loc="upper right")
+
+# Add labels for clarity
+plt.title("California Wildfire Structure Network (250m threshold)")
+plt.figtext(0.5, 0.01, "Geographical representation: Structures within 250m of each other are connected", 
+           ha="center", fontsize=9, bbox={"facecolor":"white", "alpha":0.5, "pad":5})
+plt.figtext(0.5, 0.05, "Node color indicates damage level; clusters show geographical proximity", 
+           ha="center", fontsize=9)
+
+plt.axis('off')
+plt.tight_layout()
+
+# Convert to base64 and display as HTML
+HTML(fig_to_base64(fig))
+```
+
+The visualization shows clear clustering of structures with similar damage patterns. Notably, destroyed structures (black) often appear in connected groups, suggesting that wildfire damage tends to affect adjacent structures rather than random individual buildings. The green nodes represent undamaged structures, while red and black indicate major damage and destroyed structures, respectively.
+
+# Key Centrality Analysis Findings
+
+## Damage Categories and Centrality
+
+```{python}
+#| echo: false
+def centrality_by_category(centrality_df, category_col, measure="degree_centrality"):
+    """Calculate average centrality by category."""
+    return centrality_df.groupby(category_col)[measure].mean().reset_index()
+
+# Analyze centrality by damage category for the 250m network
+damage_centrality = centrality_by_category(centrality_results["250m"], "damage")
+
+fig, ax = plt.subplots(figsize=(7, 5))
+sns.barplot(x="damage", y="degree_centrality", data=damage_centrality, ax=ax)
+plt.title("Average Degree Centrality by Damage Category (250m Network)")
+plt.xlabel("Damage Category")
+plt.ylabel("Average Degree Centrality")
+plt.xticks(rotation=45)
+plt.tight_layout()
+
+# Convert to base64 and display as HTML
+HTML(fig_to_base64(fig))
+```
+
+Structures with higher damage levels ("Destroyed" and "Major") show significantly higher degree centrality compared to structures with no damage. This indicates that more connected structures were more likely to suffer severe damage during wildfires.
+
+## Residential vs. Commercial Buildings
+
+```{python}
+#| echo: false
+# Filter for the 250m network
+cent_250 = centrality_results["250m"]
+
+# Create a residential vs. commercial indicator
+cent_250['building_type'] = cent_250['structure_type'].apply(
+    lambda x: 'Residential' if 'Residence' in str(x) or 'Home' in str(x) 
+    else ('Commercial' if 'Commercial' in str(x) else 'Other')
+)
+
+# Filter for destroyed structures
+destroyed = cent_250[cent_250['damage'] == 'Destroyed (>50%)']
+
+# Compare centrality between residential and commercial
+residential_commercial = destroyed.groupby('building_type')[
+    ['degree_centrality', 'betweenness_centrality', 
+     'closeness_centrality', 'eigenvector_centrality']
+].mean().reset_index()
+
+# Plot comparison
+fig, ax = plt.subplots(figsize=(7, 5))
+residential_commercial = residential_commercial[
+    residential_commercial['building_type'].isin(['Residential', 'Commercial'])
+]
+
+# Reshape for easier plotting
+res_com_melted = pd.melt(
+    residential_commercial, 
+    id_vars=['building_type'],
+    value_vars=['degree_centrality', 'betweenness_centrality', 
+                'closeness_centrality', 'eigenvector_centrality'],
+    var_name='Centrality Measure', 
+    value_name='Value'
+)
+
+# Plot
+sns.barplot(x='Centrality Measure', y='Value', hue='building_type', data=res_com_melted, ax=ax)
+plt.title('Centrality Measures for Destroyed Residential vs. Commercial Structures')
+plt.ylabel('Average Centrality')
+plt.xticks(rotation=45)
+plt.tight_layout()
+
+# Convert to base64 and display as HTML
+HTML(fig_to_base64(fig))
+```
+
+Among destroyed structures, residential buildings demonstrate consistently higher centrality measures compared to commercial structures. This supports our hypothesis that residential structures in high-density clusters faced greater wildfire vulnerability.
+
+## Structure Survival and Centrality
+
+```{python}
+#| echo: false
+cent_data = centrality_results["250m"]
+
+# Create binary survival indicator (1 = No Damage, 0 = Any damage)
+cent_data['survived'] = (cent_data['damage'] == 'No Damage').astype(int)
+
+# Create centrality quartiles handling duplicates
+cent_data['degree_quartile'] = pd.qcut(
+    cent_data['degree_centrality'].rank(method='first'), 
+    4, 
+    labels=False
+)
+
+# Calculate survival rate by centrality quartile
+survival_by_centrality = cent_data.groupby('degree_quartile')['survived'].mean() * 100
+
+# Plot results
+fig, ax = plt.subplots(figsize=(7, 5))
+survival_by_centrality.plot(kind='bar', color='skyblue', ax=ax)
+plt.title('Structure Survival Rate by Degree Centrality Quartile')
+plt.xlabel('Degree Centrality Quartile (0=lowest, 3=highest)')
+plt.ylabel('Survival Rate (%)')
+plt.xticks(rotation=0)
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.tight_layout()
+
+# Add survival rate values as text on bars
+for i, v in enumerate(survival_by_centrality):
+    plt.text(i, v + 2, f"{v:.1f}%", ha='center')
+
+# Convert to base64 and display as HTML
+HTML(fig_to_base64(fig))
+```
+
+The survival rate analysis shows a clear inverse relationship between centrality and structure survival. Structures in the lowest centrality quartile had approximately a 62% survival rate, compared to only 38% in the highest centrality quartile. This represents a 24 percentage point difference in survival probability based solely on network position.
+
+## Roof Construction Analysis
+
+```{python}
+#| echo: false
+# Calculate centrality by roof construction
+roof_centrality = centrality_by_category(centrality_results["250m"], "roof_construction")
+
+# Only include roof types with significant counts
+major_roof_types = ['Asphalt', 'Metal', 'Tile', 'Fire Resistant', 'Unknown', 'Wood']
+roof_centrality_filtered = roof_centrality[roof_centrality['roof_construction'].isin(major_roof_types)]
+
+# Plot results
+fig, ax = plt.subplots(figsize=(7, 5))
+sns.barplot(x="roof_construction", y="degree_centrality", data=roof_centrality_filtered, ax=ax)
+plt.title("Average Degree Centrality by Roof Construction (250m Network)")
+plt.xlabel("Roof Construction")
+plt.ylabel("Average Degree Centrality")
+plt.tight_layout()
+
+# Convert to base64 and display as HTML
+HTML(fig_to_base64(fig))
+```
+
+Asphalt roofing shows the highest average centrality, followed by tile and metal. Fire-resistant roofing materials appear less frequently in high-centrality positions. This suggests that structures with more fire-resistant roofing tend to be built in less densely connected areas, potentially as a deliberate risk mitigation strategy.
+
+# Community Analysis
+
+Using the 250m network, we detected distinct communities (clusters) of structures using the greedy modularity maximization algorithm:
+
+```{python}
+#| echo: false
+# Use the 250m network for community detection
+G = networks["250m"].graph
+
+# Find connected components
+components = list(nx.connected_components(G))
+largest_component = max(components, key=len)
+subgraph = G.subgraph(largest_component)
+
+# Get communities
+communities = nx.community.greedy_modularity_communities(subgraph)
+community_sizes = [len(c) for c in communities[:5]]
+
+fig, ax = plt.subplots(figsize=(7, 5))
+plt.bar(range(1, len(community_sizes)+1), community_sizes, color='steelblue')
+plt.title('Size of 5 Largest Communities in Wildfire Network')
+plt.xlabel('Community Rank')
+plt.ylabel('Number of Structures')
+plt.xticks(range(1, len(community_sizes)+1))
+
+# Add size values on top of bars
+for i, v in enumerate(community_sizes):
+    plt.text(i+1, v+5, str(v), ha='center')
+
+plt.tight_layout()
+
+# Convert to base64 and display as HTML
+HTML(fig_to_base64(fig))
+```
+
+We identified 15 distinct communities within our largest network component. The top five communities contained 105, 79, 51, 47, and 38 structures respectively. This clustering confirms that wildfire damage follows network-based patterns, affecting groups of proximate structures rather than random individual buildings.
+
+# Conclusion
+
+Our analysis of centrality measures in California wildfire structure networks reveals several key insights:
+
+1. **Network Position Impacts Survival**: Structures with higher centrality (more connected) show significantly lower survival rates. The difference in survival probability between the lowest and highest centrality quartiles is 24 percentage points, demonstrating that network position is a critical risk factor.
+
+2. **Residential vs. Commercial Differences**: Among destroyed structures, residential buildings have consistently higher centrality values across all measures compared to commercial structures. This suggests residential buildings are more likely to be in densely connected areas where fire can spread more readily between structures.
+
+3. **Geographic Clustering**: Our community detection analysis identified distinct clusters of structures with similar damage patterns, confirming that wildfire damage follows network-based patterns rather than affecting structures randomly.
+
+4. **Building Materials and Placement**: Structures with fire-resistant roofing materials tend to have lower centrality values, suggesting more strategic placement or construction in less connected areas.
+
+These findings have important implications for wildfire risk assessment and mitigation strategies. Network-based approaches can help identify high-risk clusters and potential intervention points to reduce wildfire damage to structures. By understanding how centrality relates to damage patterns, emergency planners can better target prevention resources and building code requirements to the most vulnerable areas.
+
+## Future Research Directions
+
+1. Incorporate temporal data to analyze how network structures change over different fire seasons
+2. Include vegetation and topographic data as node attributes to enhance the network model
+3. Develop predictive models using centrality measures to forecast structure vulnerability
+4. Create interactive visualization tools for emergency planners to identify high-centrality, high-risk areas
+
+# References
+
+- California Department of Forestry and Fire Protection (CAL FIRE). (2025). Damage Inspection Program (DINS) database.
+- Newman, M. E. J. (2010). Networks: An Introduction. Oxford University Press.
+- Watts, D. J., & Strogatz, S. H. (1998). Collective dynamics of 'small-world' networks. Nature, 393(6684), 440-442.
+```

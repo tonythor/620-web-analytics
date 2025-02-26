@@ -18,6 +18,7 @@ upload_rpubs() {
 
 usage() {
     echo "Usage: $0 -p <number> [-h (build) | -r (upload to RPubs) | -a (all)] [--is-project]"
+    echo "Example: ./build.sh --is-project -p 1 -h"
     echo "You must specify a number, e.g., -p 2."
     echo "Optional: Use --is-project flag to work with data620_projectX.qmd instead of data620_assignmentX.qmd"
     exit 1
@@ -29,11 +30,15 @@ is_project=""
 
 # First, handle --is-project flag if present
 for arg in "$@"; do
-    if [ "$arg" == "--is-project" ]; then
-        is_project=1
-        break
-    fi
+    case $arg in
+        --is-project) is_project=1; shift ;;
+    esac
 done
+
+# Ensure at least one option is passed
+if [ $# -eq 0 ]; then
+    usage
+fi
 
 # Then parse regular options
 while getopts "p:hra" opt; do
@@ -54,7 +59,7 @@ while getopts "p:hra" opt; do
             build
             upload_rpubs
             ;;
-        *)
+        \?)  # Catch invalid options
             usage
             ;;
     esac
