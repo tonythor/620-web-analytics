@@ -1,5 +1,5 @@
 ---
-title: "Assignment 4: Centrality Measures in California Wildfire Networks"
+title: "Project 1: Centrality Measures in California Wildfire Networks"
 author: "Tony Fraser and Mark Gonsalves"
 date: "25 FEB 2025"
 output:
