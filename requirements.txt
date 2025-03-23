@@ -11,3 +11,4 @@ jupyterlab
 jupyter
 pyarrow
 folium
+wordcloud
