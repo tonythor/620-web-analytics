@@ -1,0 +1,263 @@
+---
+title: "Week Eight - High Frequency Words"
+author: "Tony Fraser and Mark Gonsalves"
+date: "23 Mar 2025"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    self_contained: true
+python: 
+  jupyter: data622
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{=html}
+<style>
+
+
+<style>
+/* Your existing styles */
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Add these new styles for code blocks */
+pre > code.sourceCode { 
+    white-space: pre; 
+    position: relative; 
+}
+
+pre > code.sourceCode > span { 
+    display: inline-block; 
+    line-height: 1.25; 
+}
+
+div.sourceCode { 
+    margin: 1em 0; 
+    background-color: #f8f8f8;  /* Light gray background */
+    border: 1px solid #ddd;     /* Light border */
+    border-radius: 4px;         /* Rounded corners */
+    padding: 1em;               /* Inner spacing */
+}
+
+pre.sourceCode { 
+    margin: 0; 
+}
+
+@media screen {
+    div.sourceCode { 
+        overflow: auto; 
+    }
+}
+
+code.sourceCode > span { 
+    color: inherit; 
+    text-decoration: inherit; 
+}
+
+/* Rest of your existing styles */
+body {
+    width: 900px;
+    font-family: Arial, sans-serif;
+    margin: 0 auto;
+    background-color: white;
+}
+
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.quarto-title-meta-heading {
+    font-weight: bold;
+}
+
+.quarto-title-meta-contents {
+    margin-right: 20px;
+}
+
+
+/* Flexbox container for title and author */
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px; /* Add space below the header */
+}
+
+.header-container h1 {
+    margin: 0;
+    font-size: 2.5em;
+}
+
+.header-container .meta-info {
+    text-align: right; /* Align the meta information to the right */
+    font-size: 1.2em;
+    margin: 0;
+}
+
+h2, h3, h4, h5, h6 {
+    font-family: Arial, sans-serif;
+    margin: 0 0 10px 0; /* Reduce the bottom margin */
+    padding: 0; /* Remove padding */
+    line-height: 1.2; /* Control the line spacing */
+}
+
+/* Adjust table and image styles */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    overflow-x: auto;
+    display: block;
+}
+
+table, th, td {
+    border: 1px solid lightgray;
+    padding: 8px;
+    text-align: left;
+}
+
+th {
+    background-color: #f2f2f2;
+}
+
+/* Custom figure sizing */
+.figure {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+</style>
+```
+<a href="https://github.com/tonythor/620-web-analytics" target="_blank" rel="noopener noreferrer">github</a>
+
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show Code for Data Processing and Network Construction"
+import nltk
+import requests
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from nltk.probability import FreqDist
+import matplotlib.pyplot as plt
+import numpy as np
+import math
+from wordcloud import WordCloud
+
+# Download necessary NLTK resources
+nltk.download('punkt')
+nltk.download('stopwords')
+
+# Download the US Constitution text
+constitution_url = "https://www.usconstitution.net/const.txt"
+response = requests.get(constitution_url)
+constitution_text = response.text
+
+# Basic preprocessing
+constitution_text = constitution_text.lower()  # Convert to lowercase
+tokens = word_tokenize(constitution_text)  # Tokenize into words
+
+# Remove punctuation, numbers, and stopwords
+stop_words = set(stopwords.words('english'))
+words = [word for word in tokens if word.isalpha() and word not in stop_words]
+
+# Create frequency distribution
+fdist = FreqDist(words)
+
+# 1. Total unique words (excluding stopwords)
+unique_words = len(fdist)
+print(f"1. Total unique words in the US Constitution (excluding stopwords): {unique_words}")
+
+# 2. Number of unique words representing half of total words
+total_words = len(words)
+word_counts = fdist.most_common()
+cumulative_count = 0
+i = 0
+
+for word, count in word_counts:
+    cumulative_count += count
+    i += 1
+    if cumulative_count >= total_words / 2:
+        break
+
+print(f"2. Number of unique words representing half of the corpus: {i}")
+print(f"   (That's {i/unique_words*100:.2f}% of all unique words)")
+
+# 3. The 200 highest frequency words
+top_200 = fdist.most_common(200)
+print("\n3. The 200 highest frequency words:")
+print(top_200)
+
+# 4. Graph showing relative frequency of top 200 words
+top_200_words = [word for word, freq in top_200]
+top_200_freqs = [freq/total_words for word, freq in top_200]
+
+plt.figure(figsize=(15, 8))
+plt.bar(range(len(top_200_words)), top_200_freqs)
+plt.xticks(range(len(top_200_words)), top_200_words, rotation=90)
+plt.xlabel('Words')
+plt.ylabel('Relative Frequency')
+plt.title('Relative Frequency of Top 200 Words in the US Constitution (Stopwords Removed)')
+plt.tight_layout()
+plt.savefig('constitution_word_freq_no_stopwords.png')
+
+# 5. Test for Zipf's Law
+ranks = range(1, len(top_200_words) + 1)
+log_ranks = [math.log(r) for r in ranks]
+log_freqs = [math.log(f*total_words) for f in top_200_freqs]  # Convert to absolute frequency for log scale
+
+# Linear regression to test Zipf's law
+slope, intercept = np.polyfit(log_ranks, log_freqs, 1)
+
+plt.figure(figsize=(10, 6))
+plt.scatter(log_ranks, log_freqs, alpha=0.5)
+plt.plot(log_ranks, [slope*x + intercept for x in log_ranks], color='red')
+plt.xlabel('Log(Rank)')
+plt.ylabel('Log(Frequency)')
+plt.title(f'Testing Zipf\'s Law - Slope: {slope:.2f}')
+plt.savefig('constitution_zipf_no_stopwords.png')
+
+print(f"\n5. Zipf's Law test - Slope: {slope:.2f}")
+print(f"   Perfect Zipf's Law would have a slope of -1.0")
+
+# 6. Create a word cloud
+# Create a string of space-separated words
+text = ' '.join(words)
+
+# Generate the word cloud
+wordcloud = WordCloud(width=800, height=400, 
+                      background_color='white',
+                      max_words=200,
+                      colormap='viridis',
+                      contour_width=1, 
+                      contour_color='steelblue').generate(text)
+
+# Display the word cloud
+plt.figure(figsize=(10, 6))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title('Word Cloud of the US Constitution (Stopwords Removed)')
+plt.savefig('constitution_wordcloud.png')
+
+```
