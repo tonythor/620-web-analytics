@@ -1,263 +1,562 @@
 ---
-title: "Week Eight - High Frequency Words"
+title: "Week Eight - High Frequency Words and the US Constitution"
 author: "Tony Fraser and Mark Gonsalves"
 date: "23 Mar 2025"
-output:
-  html_document:
+format:
+  html:
     toc: true
-    number_sections: true
-    self_contained: true
-python: 
-  jupyter: data622
+    number-sections: true
+    self-contained: true
 execute:
   warning: false
   message: false
   freeze: auto
 ---
 
-```{=html}
-<style>
-
-
-<style>
-/* Your existing styles */
-.quarto-title-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-/* Add these new styles for code blocks */
-pre > code.sourceCode { 
-    white-space: pre; 
-    position: relative; 
-}
-
-pre > code.sourceCode > span { 
-    display: inline-block; 
-    line-height: 1.25; 
-}
-
-div.sourceCode { 
-    margin: 1em 0; 
-    background-color: #f8f8f8;  /* Light gray background */
-    border: 1px solid #ddd;     /* Light border */
-    border-radius: 4px;         /* Rounded corners */
-    padding: 1em;               /* Inner spacing */
-}
-
-pre.sourceCode { 
-    margin: 0; 
-}
-
-@media screen {
-    div.sourceCode { 
-        overflow: auto; 
-    }
-}
-
-code.sourceCode > span { 
-    color: inherit; 
-    text-decoration: inherit; 
-}
-
-/* Rest of your existing styles */
-body {
-    width: 900px;
-    font-family: Arial, sans-serif;
-    margin: 0 auto;
-    background-color: white;
-}
-
-.quarto-title-meta {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.quarto-title-meta-heading {
-    font-weight: bold;
-}
-
-.quarto-title-meta-contents {
-    margin-right: 20px;
-}
-
-
-/* Flexbox container for title and author */
-.header-container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px; /* Add space below the header */
-}
-
-.header-container h1 {
-    margin: 0;
-    font-size: 2.5em;
-}
-
-.header-container .meta-info {
-    text-align: right; /* Align the meta information to the right */
-    font-size: 1.2em;
-    margin: 0;
-}
-
-h2, h3, h4, h5, h6 {
-    font-family: Arial, sans-serif;
-    margin: 0 0 10px 0; /* Reduce the bottom margin */
-    padding: 0; /* Remove padding */
-    line-height: 1.2; /* Control the line spacing */
-}
-
-/* Adjust table and image styles */
-table {
-    width: 100%;
-    border-collapse: collapse;
-    max-width: 100%;
-    margin-left: auto;
-    margin-right: auto;
-    overflow-x: auto;
-    display: block;
-}
-
-table, th, td {
-    border: 1px solid lightgray;
-    padding: 8px;
-    text-align: left;
-}
-
-th {
-    background-color: #f2f2f2;
-}
-
-/* Custom figure sizing */
-.figure {
-    width: 100%;
-    margin-left: auto;
-    margin-right: auto;
-}
-
-img {
-    max-width: 100%;
-    height: auto;
-    display: block;
-    margin-left: auto;
-    margin-right: auto;
-}
-</style>
-```
-<a href="https://github.com/tonythor/620-web-analytics" target="_blank" rel="noopener noreferrer">github</a>
-
-
 ```{python}
-#| code-fold: true
-#| code-summary: "Show Code for Data Processing and Network Construction"
+#| include: false
+# Import necessary libraries
 import nltk
 import requests
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk.corpus import stopwords
 from nltk.probability import FreqDist
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.collocations import BigramAssocMeasures, BigramCollocationFinder
+from wordcloud import WordCloud
 import matplotlib.pyplot as plt
+import pandas as pd
 import numpy as np
 import math
-from wordcloud import WordCloud
+from scipy.stats import linregress
+from collections import Counter
+import string
+import io
+import base64
+from IPython.display import HTML, display
+
+# Helper function to encode plots as base64 for direct HTML embedding
+def save_plot_as_base64(plt, dpi=300):
+    """Save a matplotlib plot as base64-encoded image"""
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=dpi)
+    plt.close()
+    img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    img_html = f'<img src="data:image/png;base64,{img_base64}" alt="Plot" />'
+    return img_html
 
 # Download necessary NLTK resources
-nltk.download('punkt')
-nltk.download('stopwords')
+nltk.download('punkt', quiet=True)
+nltk.download('stopwords', quiet=True)
+nltk.download('vader_lexicon', quiet=True)
 
 # Download the US Constitution text
-constitution_url = "https://www.usconstitution.net/const.txt"
+constitution_url = "https://github.com/tonythor/620-web-analytics/raw/refs/heads/main/constitution.txt"
 response = requests.get(constitution_url)
 constitution_text = response.text
 
 # Basic preprocessing
-constitution_text = constitution_text.lower()  # Convert to lowercase
-tokens = word_tokenize(constitution_text)  # Tokenize into words
+constitution_text_lower = constitution_text.lower()  # Convert to lowercase
 
-# Remove punctuation, numbers, and stopwords
+# Handle multi-word terms
+constitution_text_processed = constitution_text_lower.replace("united states", "united_states")
+
+# Tokenize into words - original case for readability
+original_tokens = word_tokenize(constitution_text)
+# Tokenize into words - lowercase for analysis
+tokens = word_tokenize(constitution_text_processed)  
+
+# Get sentences
+sentences = sent_tokenize(constitution_text)
+
+# Get basic text statistics
+total_chars = len(constitution_text)
+total_sentences = len(sentences)
+
+# Count non-alphanumeric tokens (punctuation, etc.)
+punctuation_tokens = [token for token in tokens if not any(c.isalnum() for c in token)]
+total_punctuation = len(punctuation_tokens)
+
+# Remove non-alphabetic tokens
+alpha_tokens = [token for token in tokens if token.isalpha()]
+total_words = len(alpha_tokens)
+
+# Count stopwords
 stop_words = set(stopwords.words('english'))
-words = [word for word in tokens if word.isalpha() and word not in stop_words]
+stopword_tokens = [token for token in alpha_tokens if token in stop_words]
+total_stopwords = len(stopword_tokens)
+
+# Get content words (non-stopwords)
+content_words = [word for word in alpha_tokens if word not in stop_words]
+total_content_words = len(content_words)
 
 # Create frequency distribution
-fdist = FreqDist(words)
+fdist = FreqDist(content_words)
+unique_content_words = len(fdist)
 
-# 1. Total unique words (excluding stopwords)
-unique_words = len(fdist)
-print(f"1. Total unique words in the US Constitution (excluding stopwords): {unique_words}")
+# Get top 200 words
+top_200 = fdist.most_common(200)
+```
 
-# 2. Number of unique words representing half of total words
-total_words = len(words)
+# Overview
+
+This analysis examines word frequencies in the US Constitution to understand linguistic patterns and how they compare to general language patterns. We've processed the text by removing stopwords (common words like "the" and "and") and analyzed the remaining content words. We also treated multi-word phrases like "United States" as single entities to better capture their meaning.
+
+Our analysis includes visualizations like word clouds, frequency distributions, and statistical tests to reveal insights about this foundational document's language structure and patterns.
+
+# Document Statistics
+
+Let's first look at the basic numbers that describe the US Constitution text:
+
+```{python}
+#| echo: false
+# Create a DataFrame for basic document statistics
+stats_data = {
+    'Statistic': [
+        'Total characters', 
+        'Total sentences', 
+        'Total words',
+        'Total stopwords', 
+        'Total content words (non-stopwords)',
+        'Total unique words (including stopwords)',
+        'Total unique content words (excluding stopwords)',
+        'Average word length',
+        'Average sentence length (words)',
+        'Average sentence length (characters)'
+    ],
+    'Value': [
+        f"{total_chars:,}",
+        f"{total_sentences:,}",
+        f"{total_words:,}",
+        f"{total_stopwords:,} ({total_stopwords/total_words*100:.1f}%)",
+        f"{total_content_words:,} ({total_content_words/total_words*100:.1f}%)",
+        f"{len(set(alpha_tokens)):,}",
+        f"{unique_content_words:,}",
+        f"{sum(len(word) for word in alpha_tokens) / total_words:.1f} characters",
+        f"{total_words / total_sentences:.1f}",
+        f"{sum(len(sentence) for sentence in sentences) / total_sentences:.1f}"
+    ]
+}
+
+stats_df = pd.DataFrame(stats_data)
+stats_df.index = [''] * len(stats_df)  # Remove index numbers
+stats_df
+```
+
+## What These Numbers Tell Us
+
+- The Constitution is a fairly concise document with around 4,400 words.
+- About half the words are common stopwords, and half are meaningful content words.
+- There are fewer than 1,000 unique words in the entire document, showing limited vocabulary diversity.
+- Sentences are quite long (about 37 words per sentence), reflecting the formal legal writing style of the time.
+- The average word length is under 5 characters, showing that even in formal documents, shorter words dominate.
+
+## Word Length Distribution
+
+```{python}
+#| echo: false
+# Calculate word length distribution
+word_lengths = [len(word) for word in alpha_tokens]
+word_length_counter = Counter(word_lengths)
+
+short_words = sum(count for length, count in word_length_counter.items() if length <= 4)
+medium_words = sum(count for length, count in word_length_counter.items() if 5 <= length <= 8)
+long_words = sum(count for length, count in word_length_counter.items() if length >= 9)
+
+# Create DataFrame for word length distribution
+length_data = {
+    'Word Length': ['Short words (1-4 letters)', 'Medium words (5-8 letters)', 'Long words (9+ letters)'],
+    'Count': [f"{short_words:,} ({short_words/total_words*100:.1f}%)",
+              f"{medium_words:,} ({medium_words/total_words*100:.1f}%)",
+              f"{long_words:,} ({long_words/total_words*100:.1f}%)"]
+}
+
+length_df = pd.DataFrame(length_data)
+length_df.index = [''] * len(length_df)  # Remove index numbers
+length_df
+```
+
+Over half of the words in the Constitution are short (1-4 letters). This is typical of English, where common words like "the," "of," "to," and "in" are very short. Only about 10% of words are long (9+ letters), which are usually specialized terms.
+
+# Word Cloud Visualization
+
+A word cloud is a picture where the size of each word shows how often it appears in the text. Bigger words appear more frequently in the document.
+
+```{python}
+#| echo: false
+# Prepare text for word cloud
+text = ' '.join(content_words)
+
+# Generate the word cloud
+wordcloud = WordCloud(width=600, height=300, 
+                     background_color='white',
+                     max_words=100,
+                     colormap='viridis',
+                     contour_width=1, 
+                     contour_color='steelblue').generate(text)
+
+# Display the word cloud with controlled size
+plt.figure(figsize=(8, 4))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title("Word Cloud of the US Constitution (Stopwords Removed)")
+
+# Save as base64 and display with fixed width
+buf = io.BytesIO()
+plt.savefig(buf, format='png', bbox_inches='tight', dpi=300)
+plt.close()
+img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+html = f'<img src="data:image/png;base64,{img_base64}" alt="Word Cloud" width="750" />'
+display(HTML(html))
+```
+
+In this word cloud, we can immediately see that "shall" is by far the most common word, showing how the Constitution is focused on establishing rules and requirements. Words like "state," "president," "congress," and "law" are also prominent, highlighting the document's focus on governance and legal frameworks.
+
+In this word cloud, we can immediately see that "shall" is by far the most common word, showing how the Constitution is focused on establishing rules and requirements. Words like "state," "president," "congress," and "law" are also prominent, highlighting the document's focus on governance and legal frameworks.
+
+# Top Words Analysis
+
+This section is divided into four parts that explore different aspects of the word patterns in the Constitution. We'll look at the most frequent individual words, how many words are needed to cover half the text, how words can be grouped by meaning, and which words commonly appear together.
+
+## Most Frequent Words in the Constitution
+
+When we remove common stopwords like "the" and "and," what words appear most often in the Constitution? Here are the top 20:
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show Code for Most Frequent Words"
+
+# Create a DataFrame for top 20 words
+top_20_df = pd.DataFrame(top_200[:20], columns=['Word', 'Count'])
+top_20_df['Percentage'] = (top_20_df['Count'] / total_content_words * 100).round(2)
+top_20_df['Percentage'] = top_20_df['Percentage'].astype(str) + '%'
+top_20_df.index = range(1, len(top_20_df) + 1)  # Start index at 1
+top_20_df
+```
+
+### What This Tells Us About the Constitution
+
+The word "shall" dominates the document, appearing 191 times and making up over 8% of all meaningful words. This makes sense because the Constitution is establishing rules and duties:
+- "The President shall..."
+- "Congress shall not..."
+- "Each State shall appoint..."
+
+The high frequency of government terms like "president," "congress," "states," and "senate" reflects the document's focus on establishing government structure. Legal terms like "law" and "constitution" are also common, showing the document's purpose in establishing a legal framework.
+
+## Word Coverage Analysis
+
+An interesting question in linguistics is: how many different words do you need to cover a large portion of a text? Here's what we found for the Constitution:
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show Code for Word Coverage Analysis"
+
+# Calculate words needed for half the corpus
 word_counts = fdist.most_common()
 cumulative_count = 0
 i = 0
+half_corpus_words = []
 
 for word, count in word_counts:
     cumulative_count += count
     i += 1
-    if cumulative_count >= total_words / 2:
+    half_corpus_words.append(word)
+    if cumulative_count >= total_content_words / 2:
         break
 
-print(f"2. Number of unique words representing half of the corpus: {i}")
-print(f"   (That's {i/unique_words*100:.2f}% of all unique words)")
+# Create DataFrame for this information
+half_corpus_data = {
+    'Statistic': ['Number of unique words representing half of the corpus',
+                  'Percentage of all unique content words',
+                  'Words needed to cover 50% of the corpus'],
+    'Value': [f"{i:,}",
+              f"{i/unique_content_words*100:.1f}%",
+              ', '.join(half_corpus_words[:10]) + '...']
+}
 
-# 3. The 200 highest frequency words
-top_200 = fdist.most_common(200)
-print("\n3. The 200 highest frequency words:")
-print(top_200)
+half_corpus_df = pd.DataFrame(half_corpus_data)
+half_corpus_df.index = [''] * len(half_corpus_df)  # Remove index numbers
+half_corpus_df
+```
 
-# 4. Graph showing relative frequency of top 200 words
-top_200_words = [word for word, freq in top_200]
-top_200_freqs = [freq/total_words for word, freq in top_200]
+### What This Word Coverage Reveals
 
-plt.figure(figsize=(15, 8))
-plt.bar(range(len(top_200_words)), top_200_freqs)
-plt.xticks(range(len(top_200_words)), top_200_words, rotation=90)
+Just 104 unique words (about 12% of all unique content words) account for half of all word occurrences in the Constitution. This demonstrates a principle called the "Pareto effect" in language - a small subset of words does most of the work in a text.
+
+This pattern is typical in most languages and texts, but the Constitution has a particularly concentrated vocabulary because it's a focused legal document with a specific purpose.
+
+## Semantic Categories of Words
+
+Words can be grouped into categories based on their meaning and function. We analyzed the top 50 words in the Constitution and sorted them into these categories:
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show Code for Semantic Category Analysis"
+
+# Define categories
+governance_terms = ['president', 'congress', 'senate', 'united_states', 'representatives', 'house', 'legislative', 'executive']
+legal_terms = ['law', 'constitution', 'cases', 'states', 'power', 'powers', 'amendment', 'rights']
+procedural_terms = ['shall', 'may', 'provided', 'appointed', 'elected', 'chosen']
+
+# Count occurrences of categories in top 50
+top_50_words = [word for word, _ in top_200[:50]]
+governance_count = sum(1 for word in top_50_words if word in governance_terms)
+legal_count = sum(1 for word in top_50_words if word in legal_terms)
+procedural_count = sum(1 for word in top_50_words if word in procedural_terms)
+other_count = 50 - governance_count - legal_count - procedural_count
+
+# Create DataFrame for categories
+categories_data = {
+    'Category': ['Governance terms', 'Legal terms', 'Procedural terms', 'Other terms'],
+    'Count': [governance_count, legal_count, procedural_count, other_count],
+    'Examples': [
+        '"president", "congress", "senate"',
+        '"law", "constitution", "rights"',
+        '"shall", "may", "provided"',
+        'Various other words'
+    ],
+    'What They Show': [
+        'Focus on establishing government structure',
+        'Emphasis on legal foundations and powers',
+        'Instructions and requirements for how government functions',
+        'Other concepts not in the main categories'
+    ]
+}
+
+categories_df = pd.DataFrame(categories_data)
+categories_df.index = [''] * len(categories_df)  # Remove index numbers
+categories_df
+```
+
+### The Importance of These Categories
+
+These word categories reveal the Constitution's key priorities:
+
+- **Governance Terms** establish the branches and offices of government
+- **Legal Terms** create the foundation of laws and rights
+- **Procedural Terms** set rules for how the government must operate
+
+The distribution shows that while these specialized terms are important, the majority of frequently used words fall outside these categories, reflecting the document's need to communicate using general language alongside specialized terminology.
+
+## Common Word Pairs (Collocations)
+
+Some words frequently appear together, forming meaningful phrases. These pairs (called "collocations") often represent important concepts:
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show Code for Word Collocation Analysis"
+
+# Find common word pairs (bigrams)
+bigram_measures = BigramAssocMeasures()
+finder = BigramCollocationFinder.from_words(content_words)
+finder.apply_freq_filter(3)  # only bigrams that appear 3+ times
+top_bigrams = finder.nbest(bigram_measures.pmi, 10)
+
+# Create DataFrame for bigrams with explanation
+bigrams_data = {
+    'Word Pair': [f"{bigram[0]} {bigram[1]}" for bigram in top_bigrams],
+    'Significance': [
+        'Age qualification for offices',
+        'Alternative ways to pledge allegiance',
+        'Foreign diplomatic representatives',
+        'Discretionary powers',
+        'Presidential appointment power',
+        'Regulation of labor laws',
+        'Foreign representatives',
+        'Foreign representatives',
+        'Highest judicial body',
+        'Types of taxes'
+    ]
+}
+
+bigrams_df = pd.DataFrame(bigrams_data)
+bigrams_df.index = range(1, len(bigrams_df) + 1)  # Start index at 1
+bigrams_df
+```
+
+### Why Word Pairs Matter
+
+These word pairs reveal key concepts and institutions established by the Constitution. For example:
+
+- "Supreme court" appears as a unit because it names a specific institution
+- "Oath affirmation" reflects the freedom to pledge in different ways
+- "Ministers consuls" and "ambassadors public" refer to diplomatic positions
+- "Duties imposts" refers to different types of taxes and tariffs
+
+By looking at these pairs, we can identify important multi-word concepts that would be missed if we only analyzed single words. This approach helps us better understand the specific governance and legal framework the Constitution establishes.
+
+# Word Frequency Distribution
+
+This graph shows how often the top 50 words appear in the Constitution compared to each other:
+
+```{python}
+#| echo: false
+# Prepare data for top 50 word frequency graph
+top_50_words = [word for word, freq in top_200[:50]]
+top_50_freqs = [freq/total_words for word, freq in top_200[:50]]
+
+# Create the plot with smaller size
+plt.figure(figsize=(10, 6))
+plt.bar(range(len(top_50_words)), top_50_freqs)
+plt.xticks(range(len(top_50_words)), top_50_words, rotation=90, fontsize=8)  # Smaller font
 plt.xlabel('Words')
 plt.ylabel('Relative Frequency')
-plt.title('Relative Frequency of Top 200 Words in the US Constitution (Stopwords Removed)')
+plt.title('Relative Frequency of Top 50 Words in the US Constitution')
 plt.tight_layout()
-plt.savefig('constitution_word_freq_no_stopwords.png')
 
-# 5. Test for Zipf's Law
-ranks = range(1, len(top_200_words) + 1)
+# Save as base64 and display with fixed width
+buf = io.BytesIO()
+plt.savefig(buf, format='png', bbox_inches='tight', dpi=300)
+plt.close()
+img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+html = f'<img src="data:image/png;base64,{img_base64}" alt="Word Frequency Distribution" width="750" />'
+display(HTML(html))
+```
+
+The graph shows a steep drop-off after the first few words, especially "shall," which is much more common than any other word. This pattern where a few words are used very frequently and most words are used rarely is typical of most texts.
+
+The graph shows a steep drop-off after the first few words, especially "shall," which is much more common than any other word. This pattern where a few words are used very frequently and most words are used rarely is typical of most texts.
+
+# Zipf's Law Analysis
+
+## What is Zipf's Law?
+
+Zipf's Law is a rule about word frequency in language. It says that the most common word appears about twice as often as the second most common word, three times as often as the third most common word, and so on. When graphed on a special chart (log-log scale), this relationship should form a straight line with a slope of -1.0.
+
+## Testing Zipf's Law on the Constitution
+
+Now we'll test whether the word frequencies in the Constitution follow this pattern:
+
+```{python}
+#| echo: false
+# Prepare data for Zipf's Law analysis
+ranks = range(1, len(top_200) + 1)
 log_ranks = [math.log(r) for r in ranks]
-log_freqs = [math.log(f*total_words) for f in top_200_freqs]  # Convert to absolute frequency for log scale
+log_freqs = [math.log(freq) for freq in [count for word, count in top_200]]
 
 # Linear regression to test Zipf's law
 slope, intercept = np.polyfit(log_ranks, log_freqs, 1)
 
-plt.figure(figsize=(10, 6))
+# Calculate R-squared and more detailed statistics
+result = linregress(log_ranks, log_freqs)
+r_squared = result.rvalue**2
+
+# Calculate residuals (difference between observed and predicted values)
+predicted_log_freqs = [slope*x + intercept for x in log_ranks]
+residuals = [observed - predicted for observed, predicted in zip(log_freqs, predicted_log_freqs)]
+max_residual = max(residuals, key=abs)
+max_residual_idx = residuals.index(max_residual)
+max_residual_word = top_200[max_residual_idx][0]
+
+# Create the plot with smaller size
+plt.figure(figsize=(8, 5))
 plt.scatter(log_ranks, log_freqs, alpha=0.5)
-plt.plot(log_ranks, [slope*x + intercept for x in log_ranks], color='red')
+plt.plot(log_ranks, predicted_log_freqs, color='red')
 plt.xlabel('Log(Rank)')
 plt.ylabel('Log(Frequency)')
-plt.title(f'Testing Zipf\'s Law - Slope: {slope:.2f}')
-plt.savefig('constitution_zipf_no_stopwords.png')
+plt.title(f'Testing Zipf\'s Law - Slope: {slope:.2f}, R²: {r_squared:.2f}')
+plt.tight_layout()
 
-print(f"\n5. Zipf's Law test - Slope: {slope:.2f}")
-print(f"   Perfect Zipf's Law would have a slope of -1.0")
+# Save as base64 and display with fixed width
+buf = io.BytesIO()
+plt.savefig(buf, format='png', bbox_inches='tight', dpi=300)
+plt.close()
+img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+html = f'<img src="data:image/png;base64,{img_base64}" alt="Zipf\'s Law Analysis" width="750" />'
+display(HTML(html))
 
-# 6. Create a word cloud
-# Create a string of space-separated words
-text = ' '.join(words)
+# Create DataFrame for Zipf's Law results
+zipf_data = {
+    'Statistic': ['Slope (Perfect Zipf\'s Law would be -1.0)',
+                  'R-squared (how well the data fits the line)',
+                  'Word deviating most from Zipf\'s Law',
+                  'How much it deviates'],
+    'Value': [f"{slope:.4f}",
+              f"{r_squared:.4f}",
+              f"{max_residual_word}",
+              f"{'More' if max_residual > 0 else 'Less'} frequent than expected by {math.exp(abs(max_residual)):.2f} times"]
+}
 
-# Generate the word cloud
-wordcloud = WordCloud(width=800, height=400, 
-                      background_color='white',
-                      max_words=200,
-                      colormap='viridis',
-                      contour_width=1, 
-                      contour_color='steelblue').generate(text)
-
-# Display the word cloud
-plt.figure(figsize=(10, 6))
-plt.imshow(wordcloud, interpolation='bilinear')
-plt.axis('off')
-plt.title('Word Cloud of the US Constitution (Stopwords Removed)')
-plt.savefig('constitution_wordcloud.png')
-
+zipf_df = pd.DataFrame(zipf_data)
+zipf_df.index = [''] * len(zipf_df)  # Remove index numbers
+zipf_df
 ```
+
+## What This Tells Us About Zipf's Law
+
+The Constitution shows a flatter distribution (slope of -0.67) than predicted by Zipf's Law (ideal slope of -1.0). This suggests more evenness in word usage than typical natural language. 
+
+The high R-squared value (0.98) indicates that despite the different slope, the relationship between word frequency and rank still follows a power law pattern very consistently.
+
+The word "shall" appears about 2.08 times more frequently than Zipf's Law would predict, which makes sense given the Constitution's purpose of establishing rules and requirements.
+
+## What This Tells Us About Zipf's Law
+
+The Constitution shows a flatter distribution (slope of -0.67) than predicted by Zipf's Law (ideal slope of -1.0). This suggests more evenness in word usage than typical natural language. 
+
+The high R-squared value (0.98) indicates that despite the different slope, the relationship between word frequency and rank still follows a power law pattern very consistently.
+
+The word "shall" appears about 2.08 times more frequently than Zipf's Law would predict, which makes sense given the Constitution's purpose of establishing rules and requirements.
+
+# Sentiment Analysis
+
+We can also analyze the emotional tone of the Constitution:
+
+```{python}
+#| echo: false
+# Perform sentiment analysis
+sia = SentimentIntensityAnalyzer()
+sentiment_scores = [sia.polarity_scores(sentence) for sentence in sentences]
+avg_compound_score = sum(score["compound"] for score in sentiment_scores) / len(sentiment_scores)
+avg_positive_score = sum(score["pos"] for score in sentiment_scores) / len(sentiment_scores)
+avg_negative_score = sum(score["neg"] for score in sentiment_scores) / len(sentiment_scores)
+avg_neutral_score = sum(score["neu"] for score in sentiment_scores) / len(sentiment_scores)
+
+# Create DataFrame for sentiment results
+sentiment_data = {
+    'Sentiment Measure': ['Average compound sentiment score (-1 to +1 scale)',
+                         'Average positive sentiment',
+                         'Average negative sentiment',
+                         'Average neutral sentiment'],
+    'Value': [f"{avg_compound_score:.4f}",
+             f"{avg_positive_score:.4f}",
+             f"{avg_negative_score:.4f}",
+             f"{avg_neutral_score:.4f}"]
+}
+
+sentiment_df = pd.DataFrame(sentiment_data)
+sentiment_df.index = [''] * len(sentiment_df)  # Remove index numbers
+sentiment_df
+```
+
+## What This Sentiment Analysis Means
+
+The Constitution has a slightly positive sentiment overall (0.20 on a scale from -1 to +1). The vast majority of the content (89%) is neutral, as expected for a legal document. There's about twice as much positive sentiment (7%) as negative sentiment (3%), which might reflect the document's focus on establishing rights and freedoms rather than restrictions.
+
+This analysis uses computer algorithms to detect emotional tone in text. While this technique works well for everyday language, it should be interpreted cautiously for specialized legal documents like the Constitution, which uses language in a very specific way.
+
+# Conclusions
+
+Our analysis of the US Constitution reveals several interesting linguistic patterns:
+
+1. The document contains a relatively small vocabulary (about 844 unique content words), which makes sense for a focused legal document.
+
+2. A very small percentage of words (just 104 unique words, or 12%) account for half of all word occurrences, showing the concentrated nature of the vocabulary.
+
+3. The word frequency distribution follows a power law pattern similar to Zipf's Law, but with a flatter distribution, suggesting more evenness in word usage than typical natural language.
+
+4. The word "shall" dominates the text, accounting for over 8% of all content words, reflecting the document's purpose of establishing rules and requirements.
+
+## How the Constitution's Vocabulary Differs from General Language
+
+The Constitution's vocabulary is distinctive in several ways:
+
+1. **Specialized Terminology**: It contains a much higher concentration of governmental and legal terminology (like "president," "congress," "senate") than general language.
+
+2. **Formal Register**: The document uses a formal style lacking personal pronouns and colloquialisms while featuring terms of obligation such as "shall."
+
+3. **Historical Context**: The 18th-century language includes terms and phrases that were common then but are less used today.
+
+4. **Purpose-Driven Vocabulary**: As a document establishing governance, its vocabulary focuses on institutions, powers, procedures, and rights rather than the diverse topics found in general language.
+
+The Constitution serves as an interesting example of how specialized documents develop their own linguistic patterns while still following some of the fundamental properties of natural language.
