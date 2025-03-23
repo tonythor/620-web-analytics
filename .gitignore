@@ -193,3 +193,6 @@ data620_project2_files/*
 .DS_Store
 data620_assignment8.html
 data620_assignment8_files/
+constitution_word_freq_no_stopwords.png
+constitution_wordcloud.png
+constitution_zipf_no_stopwords.png
