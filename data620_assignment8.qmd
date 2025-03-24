@@ -490,14 +490,6 @@ The high R-squared value (0.98) indicates that despite the different slope, the 
 
 The word "shall" appears about 2.08 times more frequently than Zipf's Law would predict, which makes sense given the Constitution's purpose of establishing rules and requirements.
 
-## What This Tells Us About Zipf's Law
-
-The Constitution shows a flatter distribution (slope of -0.67) than predicted by Zipf's Law (ideal slope of -1.0). This suggests more evenness in word usage than typical natural language. 
-
-The high R-squared value (0.98) indicates that despite the different slope, the relationship between word frequency and rank still follows a power law pattern very consistently.
-
-The word "shall" appears about 2.08 times more frequently than Zipf's Law would predict, which makes sense given the Constitution's purpose of establishing rules and requirements.
-
 # Sentiment Analysis
 
 We can also analyze the emotional tone of the Constitution:
