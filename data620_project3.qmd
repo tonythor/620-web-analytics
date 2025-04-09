@@ -1,0 +1,843 @@
+---
+title: "Project 3 : The Gender of Names"
+author: "Tony and Mark"
+date: "8 April 2025"
+format:
+  html:
+    toc: true
+    number-sections: true
+    self-contained: true
+python: 
+  jupyter: data622
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+```{=html}
+<style>
+/* Your existing styles */
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Add these new styles for code blocks */
+pre > code.sourceCode { 
+    white-space: pre; 
+    position: relative; 
+}
+
+pre > code.sourceCode > span { 
+    display: inline-block; 
+    line-height: 1.25; 
+}
+
+div.sourceCode { 
+    margin: 1em 0; 
+    background-color: #f8f8f8;  /* Light gray background */
+    border: 1px solid #ddd;     /* Light border */
+    border-radius: 4px;         /* Rounded corners */
+    padding: 1em;               /* Inner spacing */
+}
+
+pre.sourceCode { 
+    margin: 0; 
+}
+
+@media screen {
+    div.sourceCode { 
+        overflow: auto; 
+    }
+}
+
+code.sourceCode > span { 
+    color: inherit; 
+    text-decoration: inherit; 
+}
+
+/* Rest of your existing styles */
+body {
+    width: 85%;          /* Take 80% of screen width */
+    max-width: 1400px;   /* But never go wider than 1200px */
+    margin: 0 auto;      /* Center horizontally */
+    padding: 0 2rem;     /* Optional padding for breathing room */
+    font-family: Arial, sans-serif;
+    background-color: white;
+}
+
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.quarto-title-meta-heading {
+    font-weight: bold;
+}
+
+.quarto-title-meta-contents {
+    margin-right: 20px;
+}
+
+
+/* Flexbox container for title and author */
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px; /* Add space below the header */
+}
+
+.header-container h1 {
+    margin: 0;
+    font-size: 2.5em;
+}
+
+.header-container .meta-info {
+    text-align: right; /* Align the meta information to the right */
+    font-size: 1.2em;
+    margin: 0;
+}
+
+h2, h3, h4, h5, h6 {
+    font-family: Arial, sans-serif;
+    margin: 0 0 10px 0; /* Reduce the bottom margin */
+    padding: 0; /* Remove padding */
+    line-height: 1.2; /* Control the line spacing */
+}
+
+/* Adjust table and image styles */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    overflow-x: auto;
+    display: block;
+}
+
+table, th, td {
+    border: 1px solid lightgray;
+    padding: 8px;
+    text-align: left;
+}
+
+th {
+    background-color: #f2f2f2;
+}
+
+/* Custom figure sizing */
+.figure {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+</style>
+```
+<a href="https://github.com/tonythor/620-web-analytics" target="_blank" rel="noopener noreferrer">github</a>
+
+## Introduction
+
+In this project, we've implemented a name gender classifier using techniques described in Chapter 6 of "Natural Language Processing with Python." The goal was to build the best possible classifier for predicting whether a given name is male or female.
+
+This task represents a common natural language processing challenge: taking text data (in this case, names) and creating a model that can make accurate predictions about their characteristics (gender). By exploring different feature extraction methods and classifier algorithms, we can discover which approaches yield the most accurate results.
+
+## Data Preparation
+
+We started by loading the Names Corpus from NLTK and splitting it into three subsets:
+
+* Training set: 6900 names (used to train the model)
+* Dev-test set: 500 names (used to tune model parameters)
+* Test set: 500 names (used for final evaluation)
+
+The data was randomly shuffled before splitting to ensure an unbiased distribution of names across the sets, which is crucial for creating a robust and generalizable model.
+
+```{python}
+#| code-fold: true
+#| code-summary: "View section code"
+import nltk
+import random
+from nltk.corpus import names
+import string
+from nltk import NaiveBayesClassifier
+from nltk import DecisionTreeClassifier
+from nltk import MaxentClassifier
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from nltk.classify import accuracy
+from nltk.metrics import ConfusionMatrix
+import time
+import numpy as np
+import io
+import base64
+from IPython.display import HTML
+
+# Add these new imports
+from sklearn.ensemble import RandomForestClassifier
+from nltk.classify.scikitlearn import SklearnClassifier
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.preprocessing import LabelEncoder
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from nltk.classify.scikitlearn import SklearnClassifier
+
+
+# Download required data
+nltk.download('names')
+
+# Get all names
+labeled_names = ([(name, 'male') for name in names.words('male.txt')] +
+                [(name, 'female') for name in names.words('female.txt')])
+
+
+
+# Shuffle the dataset
+random.seed(42)
+random.shuffle(labeled_names)
+
+# Split data into training, dev-test, and test sets
+test_set = labeled_names[:500]
+dev_test_set = labeled_names[500:1000]
+train_set = labeled_names[1000:]
+
+print(f"Training set size: {len(train_set)}")
+print(f"Dev-test set size: {len(dev_test_set)}")
+print(f"Test set size: {len(test_set)}")
+
+```
+**Data Structure Sample**
+Here's a glimpse of what our labeled data looks like (first 10 entries):
+
+labeled_names [:10] 
+- [('Raye', 'female'),
+- ('Marita', 'female'),
+-  ('Fey', 'female'),
+-  ('Vittoria', 'female'),
+-  ('Dannie', 'female'),
+-  ('Annabela', 'female'),
+-  ('Sayre', 'male'),
+-  ('Brock', 'male'),
+-  ('Angel', 'female'),
+-  ('Bride', 'female')]
+
+## Classifier Evaluation Framework
+
+Before implementing our feature extractors, we need a robust evaluation framework to systematically compare different approaches. The function below handles training, testing, and generating performance metrics for each classifier configuration.
+
+```{python}
+#| code-fold: true
+#| code-summary: "View section code"
+#| 
+def gender_features_baseline(name):
+    return {'last_letter': name[-1].lower()}
+
+# Train and evaluate the baseline classifier
+def evaluate_classifier(feature_extractor, classifier_type='NB'):
+    # Extract features
+    train_features = [(feature_extractor(name), gender) for name, gender in train_set]
+    devtest_features = [(feature_extractor(name), gender) for name, gender in dev_test_set]
+    test_features = [(feature_extractor(name), gender) for name, gender in test_set]
+    
+#  [({'last_letter': 'a'}, 'female'),
+#  ({'last_letter': 'n'}, 'male'),
+#  ({'last_letter': 'e'}, 'female'),
+#  ...
+# ]
+    # Train the classifier
+    start_time = time.time()
+    
+    if classifier_type == 'NB':
+        classifier = NaiveBayesClassifier.train(train_features)
+    elif classifier_type == 'DT':
+        classifier = DecisionTreeClassifier.train(train_features)
+    elif classifier_type == 'MaxEnt':
+        classifier = MaxentClassifier.train(train_features, max_iter=10)
+        
+    elif classifier_type == 'RF':
+        # Use scikit-learn directly instead of the NLTK wrapper
+        # this code was added after the fact, just to prove that RF wasn't going to help.
+        from sklearn.model_selection import train_test_split
+        from sklearn.feature_extraction import DictVectorizer
+        from sklearn.ensemble import RandomForestClassifier
+        
+        # Convert NLTK features to scikit-learn format
+        vectorizer = DictVectorizer()
+        X_train = [feat for feat, _ in train_features]
+        y_train = [label for _, label in train_features]
+        
+        # Transform features to vectors
+        X_train_vec = vectorizer.fit_transform(X_train)
+        
+        # Train the classifier
+        rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+        rf_model.fit(X_train_vec, y_train)
+        
+        # Create a custom classifier that uses the trained model and vectorizer
+        # to bypass ntlk sklearn classifier wrapper, since I coudn't get htat
+        # to work. Same concept though, a dataclass like thing that we can use 
+        # to train with.
+        class SklearnWrapper:
+            def __init__(self, model, vectorizer):
+                self.model = model
+                self.vectorizer = vectorizer
+                
+            def classify(self, feature_dict):
+                # Transform a single feature dictionary
+                X = self.vectorizer.transform([feature_dict])
+                return self.model.predict(X)[0]
+            
+            def classify_many(self, feature_dicts):
+                # Transform multiple feature dictionaries
+                X = self.vectorizer.transform(feature_dicts)
+                return rf_model.predict(X)        
+        classifier = SklearnWrapper(rf_model, vectorizer)
+        
+    
+    training_time = time.time() - start_time
+    
+    # Evaluate on dev-test set
+    dev_accuracy = accuracy(classifier, devtest_features)
+    
+    # Evaluate on test set
+    test_accuracy = accuracy(classifier, test_features)
+    
+    # Get predictions for confusion matrix
+    
+    # PSEUDOCODE FOR PREDICTIONS:
+    # 1. We need a list of what the model predicted for each name in the dev-test set
+    # 2. The devtest_features list contains tuples of (feature_dict, gender)
+    # 3. We only need the feature_dict to make predictions
+    # 4. For each tuple in devtest_features:
+    #    - Unpack it as (feat, _) where:
+    #      * feat = the feature dictionary
+    #      * _ = the gender label (which we ignore here, hence the underscore)
+    #    - Feed the feature dictionary to classifier.classify()
+    #    - Add the prediction to our dev_predictions list
+    
+    dev_predictions = [classifier.classify(feat) for feat, _ in devtest_features]
+    dev_expected = [gender for _, gender in dev_test_set]
+    
+    test_predictions = [classifier.classify(feat) for feat, _ in test_features]
+    test_expected = [gender for _, gender in test_set]
+    
+    # Create confusion matrices
+    dev_cm = ConfusionMatrix(dev_expected, dev_predictions)
+    test_cm = ConfusionMatrix(test_expected, test_predictions)
+    
+    # Calculate error rates by gender
+    # PSEUDOCODE EXPLANATION:
+    
+    # 1. We want to calculate: "What percent of male names were incorrectly classified?"
+    #
+    # 2. To do this we need:
+    #    - NUMERATOR: Count of male names that were classified incorrectly
+    #    - DENOMINATOR: Total count of male names
+    #
+    # 3. For the NUMERATOR (count of incorrect male classifications):
+    #    - Loop through each name in dev_test_set with its position (i)
+    #    - For each name, check if it's actually male AND was predicted as non-male
+    #    - Count each case where a male name was misclassified (using sum())
+    #
+    # 4. For the DENOMINATOR (total count of male names):
+    #    - Loop through each item in dev_test_set
+    #    - Count how many have gender == 'male' (using sum())
+    #
+    # 5. The error rate = (Number of misclassified male names) / (Total number of male names)
+    
+    dev_male_error = sum(1 for i, (_, gender) in enumerate(dev_test_set) 
+                      if gender == 'male' and dev_predictions[i] != 'male') / sum(1 for _, g in dev_test_set if g == 'male')
+    dev_female_error = sum(1 for i, (_, gender) in enumerate(dev_test_set) 
+                        if gender == 'female' and dev_predictions[i] != 'female') / sum(1 for _, g in dev_test_set if g == 'female')
+    
+    test_male_error = sum(1 for i, (_, gender) in enumerate(test_set) 
+                       if gender == 'male' and test_predictions[i] != 'male') / sum(1 for _, g in test_set if g == 'male')
+    test_female_error = sum(1 for i, (_, gender) in enumerate(test_set) 
+                         if gender == 'female' and test_predictions[i] != 'female') / sum(1 for _, g in test_set if g == 'female')
+    
+    result = {
+        'classifier_type': classifier_type,
+        'feature_extractor': feature_extractor.__name__,
+        'dev_accuracy': dev_accuracy,
+        'test_accuracy': test_accuracy,
+        'dev_cm': dev_cm,
+        'test_cm': test_cm,
+        'dev_male_error': dev_male_error,
+        'dev_female_error': dev_female_error,
+        'test_male_error': test_male_error,
+        'test_female_error': test_female_error,
+        'training_time': training_time,
+        'classifier': classifier
+    }
+    
+    return result
+
+# Evaluate baseline
+baseline_result = evaluate_classifier(gender_features_baseline)
+
+print(f"Baseline Dev-test accuracy: {baseline_result['dev_accuracy']:.4f}")
+print(f"Baseline Test accuracy: {baseline_result['test_accuracy']:.4f}")
+print("\nDev-test Confusion Matrix:")
+print(baseline_result['dev_cm'])
+print("\nTest Confusion Matrix:")
+print(baseline_result['test_cm'])
+
+```
+## Feature Engineering and Analysis
+
+We created several feature extractors with increasing complexity to see which characteristics of names are most predictive of gender. Each extractor builds on the previous one, incorporating more sophisticated patterns:
+
+```{python}
+#| code-fold: true
+#| code-summary: "View section code"
+#| 
+# BASELINE FEATURE EXTRACTOR
+# This is the simplest approach - just look at the last letter of the name
+# Example: "John" -> {'last_letter': 'n'}, "Mary" -> {'last_letter': 'y'}
+# Based on the observation that female names often end in vowels ('a', 'e') 
+# while male names often end in consonants ('n', 'k')
+def gender_features_baseline(name):
+    return {'last_letter': name[-1].lower()}
+
+
+# LAST TWO LETTERS FEATURE EXTRACTOR
+# Looks at the final two letters of the name which can capture common endings
+# Example: "John" -> {'last_two': 'hn'}, "Mary" -> {'last_two': 'ry'}
+# This catches patterns like 'ie', 'yn', 'on' that have gender associations
+def gender_features_last_two(name):
+    name = name.lower()
+    return {'last_two': name[-2:] if len(name) >= 2 else name}
+
+
+# MULTIPLE FEATURES EXTRACTOR
+# Uses three features: first letter, last letter, and the name's length
+# Example: "John" -> {'first_letter': 'j', 'last_letter': 'n', 'length': 4}
+# Captures patterns from both ends and the overall structure of the name
+def gender_features_multi(name):
+    name = name.lower()
+    features = {
+        'last_letter': name[-1],
+        'first_letter': name[0],
+        'length': len(name)
+    }
+    return features
+
+
+# SUFFIX-BASED FEATURES EXTRACTOR
+# Focuses only on endings with increasing specificity (1, 2, or 3 letters)
+# Example: "Elizabeth" -> {'last_letter': 'h', 'last_two': 'th', 'last_three': 'eth'}
+# Captures more complex ending patterns like 'eth', 'ine', 'son', etc.
+def gender_features_suffix(name):
+    name = name.lower()
+    return {
+        'last_letter': name[-1],
+        'last_two': name[-2:] if len(name) >= 2 else name,
+        'last_three': name[-3:] if len(name) >= 3 else name,
+    }
+
+
+# COMPREHENSIVE FEATURES EXTRACTOR
+# Analyzes both beginnings and endings, plus structure and vowel usage
+# Includes 11 different features to capture complex patterns in names
+# Looks at vowel distribution which can differ between male/female names
+def gender_features_comprehensive(name):
+    name = name.lower()
+    features = {
+        'first_letter': name[0],
+        'first_two': name[:2] if len(name) >= 2 else name,
+        'first_three': name[:3] if len(name) >= 3 else name,
+        'last_letter': name[-1],
+        'last_two': name[-2:] if len(name) >= 2 else name,
+        'last_three': name[-3:] if len(name) >= 3 else name,
+        'length': len(name),
+        'contains_vowels': sum(1 for c in name if c in 'aeiou'),
+        'vowel_ratio': sum(1 for c in name if c in 'aeiou') / len(name) if len(name) > 0 else 0,
+        'starts_vowel': name[0] in 'aeiou',
+        'ends_vowel': name[-1] in 'aeiou'
+    }
+    return features
+
+
+# ADVANCED FEATURES EXTRACTOR
+# Builds on comprehensive features by adding gender-specific suffix detection
+# Adds features for common female endings (like 'a', 'ie', 'tte') 
+# and male endings (like 'er', 'on', 'an')
+# Also counts patterns of consecutive vowels or consonants
+def gender_features_advanced(name):
+    name = name.lower()
+    features = gender_features_comprehensive(name)
+    
+    # Add presence of specific suffixes that might indicate gender
+    # Many female names end in 'a' (Emma, Sophia, Victoria)
+    # Many male names end in 'n' (John, Brian, Steven)
+    # Endings like 'ie' or 'y' are often found in female names (Julie, Stacy)
+    # Endings like 'er' or 'on' are common in male names (Peter, Jason)
+    ## from studies like this. https://www.degruyterbrill.com/document/doi/10.1515/ling-2020-0027/html?lang=en 
+    
+    female_suffixes = ['a', 'e', 'i', 'ie', 'y', 'ey', 'la', 'na', 'ne', 'ta', 'tte', 'elle']
+    male_suffixes = ['o', 'n', 'r', 's', 'k', 'd', 't', 'on', 'er', 'in', 'an']
+    
+    for suffix in female_suffixes:
+        features[f'ends_with_{suffix}'] = name.endswith(suffix)
+    
+    for suffix in male_suffixes:
+        features[f'ends_with_{suffix}'] = name.endswith(suffix)
+    
+    # Add frequency of specific character patterns
+    # "John" has one consecutive consonant pair: "hn"
+    # "Matthew" has one consecutive consonant pair: "th"
+    # etc. 
+
+    features['consonant_groups'] = len([i for i in range(len(name)-1) if name[i] not in 'aeiou' and name[i+1] not in 'aeiou'])
+    features['vowel_groups'] = len([i for i in range(len(name)-1) if name[i] in 'aeiou' and name[i+1] in 'aeiou'])
+    
+    return features
+
+
+# FEATURE EXTRACTOR EVALUATION
+# Create a list of all feature extraction functions to test
+feature_extractors = [
+    gender_features_baseline,
+    gender_features_last_two,
+    gender_features_multi,
+    gender_features_suffix,
+    gender_features_comprehensive,
+    gender_features_advanced
+]
+
+# Results dictionary to store performance metrics
+results = {}
+
+# Evaluate each feature extractor with Naive Bayes classifier
+# Store results and print accuracy metrics
+for extractor in feature_extractors:
+    results[extractor.__name__] = evaluate_classifier(extractor)
+    print(f"\n{extractor.__name__}:")
+    print(f"  Dev-test accuracy: {results[extractor.__name__]['dev_accuracy']:.4f}")
+    print(f"  Test accuracy: {results[extractor.__name__]['test_accuracy']:.4f}")
+
+# Find the best feature extractor based on dev-test accuracy
+best_extractor_name = max(results, key=lambda k: results[k]['dev_accuracy'])
+best_extractor = next(fe for fe in feature_extractors if fe.__name__ == best_extractor_name)
+
+print(f"\nBest feature extractor: {best_extractor_name}")
+print(f"Dev-test accuracy: {results[best_extractor_name]['dev_accuracy']:.4f}")
+print(f"Test accuracy: {results[best_extractor_name]['test_accuracy']:.4f}")
+
+```
+
+## Classifier Comparison
+
+After identifying the best feature extraction method, we compared different classification algorithms to find the most effective approach for the gender prediction task.
+
+```{python}
+#| code-fold: true
+#| code-summary: "View section code"
+import numpy
+# Try different classifiers with the best feature extractor
+# Define the three classifier types to compare: Naive Bayes, Decision Tree, and Maximum Entropy
+classifier_types = ['NB', 'DT', 'RF']
+
+# Dictionary to store results for each classifier type
+classifier_results = {}
+
+# Evaluate each classifier using the best feature extractor identified earlier
+for classifier_type in classifier_types:
+    # Call evaluate_classifier with the best feature extractor and current classifier type
+    # This trains the classifier, evaluates it, and returns performance metrics
+    classifier_results[classifier_type] = evaluate_classifier(best_extractor, classifier_type)
+    
+    # Print performance metrics for the current classifier
+    print(f"\n{classifier_type} Classifier with {best_extractor.__name__}:")
+    print(f"  Dev-test accuracy: {classifier_results[classifier_type]['dev_accuracy']:.4f}")
+    print(f"  Test accuracy: {classifier_results[classifier_type]['test_accuracy']:.4f}")
+    print(f"  Training time: {classifier_results[classifier_type]['training_time']:.2f} seconds")
+
+# Find the best classifier based on dev-test accuracy
+# The lambda function extracts the dev_accuracy value for each classifier type
+# max() returns the key (classifier type) with the highest value
+best_classifier_type = max(classifier_results, key=lambda k: classifier_results[k]['dev_accuracy'])
+
+# Print the results for the best classifier
+print(f"\nBest classifier: {best_classifier_type}")
+print(f"Dev-test accuracy: {classifier_results[best_classifier_type]['dev_accuracy']:.4f}")
+print(f"Test accuracy: {classifier_results[best_classifier_type]['test_accuracy']:.4f}")
+
+# Extract the trained classifier object from the results dictionary
+best_classifier = classifier_results[best_classifier_type]['classifier']
+
+# If the best classifier is Naive Bayes, display its most informative features
+# This shows which features are most predictive of gender
+if best_classifier_type == 'NB':
+    print("\nMost Informative Features:")
+    # Get the top 20 most informative features and their importance ratios
+    for feature, ratio in best_classifier.most_informative_features(20):
+        # Try to convert ratio to float for consistent formatting
+        # This handles cases where the ratio might not be a numeric value
+        try:
+            print(f"{feature:<40} {float(ratio):.1f}")
+        except (ValueError, TypeError):
+            # If conversion to float fails, just print the ratio as is
+            print(f"{feature:<40} {ratio}")
+```
+
+## Visualizations and Results Analysis
+
+We created visualizations to clearly compare the performance of different feature extractors and classifiers, along with analyzing gender-specific error rates. These visualizations help us understand which approaches work best and where our model still makes mistakes.
+
+
+```{python}
+#| code-fold: true
+#| code-summary: "View section code"
+
+#| code-fold: true
+#| code-summary: "View visualization code"
+
+import io
+import base64
+from IPython.display import HTML
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+# Function to encode matplotlib figures as HTML
+def encode_figure_as_html(fig, width=750, dpi=300):
+    """Convert a matplotlib figure to base64 and return HTML img tag."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=dpi)
+    plt.close(fig)  # Close the figure to free memory
+    img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    html = f'<img src="data:image/png;base64,{img_base64}" alt="Plot" width="{width}" />'
+    return html
+
+# Set default plot styles
+def set_plot_style():
+    plt.style.use('ggplot')
+    sns.set(style="whitegrid")
+    plt.rcParams.update({'font.size': 12})
+
+# Apply plot style
+set_plot_style()
+
+# Prepare data for visualization
+feature_names = [fe.__name__.replace('gender_features_', '') for fe in feature_extractors]
+dev_accuracies = [results[fe.__name__]['dev_accuracy'] for fe in feature_extractors]
+test_accuracies = [results[fe.__name__]['test_accuracy'] for fe in feature_extractors]
+
+# Create a DataFrame for easier plotting
+df = pd.DataFrame({
+    'Feature Extractor': feature_names,
+    'Dev-test Accuracy': dev_accuracies,
+    'Test Accuracy': test_accuracies
+})
+
+# Set up the figure for feature extractor comparison
+fig1 = plt.figure(figsize=(12, 6))
+bar_width = 0.35
+x = range(len(feature_names))
+
+# Create the bar chart
+plt.bar([i - bar_width/2 for i in x], dev_accuracies, bar_width, label='Dev-test Accuracy')
+plt.bar([i + bar_width/2 for i in x], test_accuracies, bar_width, label='Test Accuracy')
+
+# Add labels and title
+plt.xlabel('Feature Extractor', fontsize=12)
+plt.ylabel('Accuracy', fontsize=12)
+plt.title('Performance Comparison of Different Feature Extractors', fontsize=14)
+plt.xticks(x, feature_names, rotation=45, ha='right')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.legend(fontsize=10)
+plt.tight_layout()
+
+# Convert the figure to HTML and display
+feature_comparison_html = encode_figure_as_html(fig1)
+display(HTML("<h2>Feature Extractor Performance Comparison</h2>"))
+display(HTML(feature_comparison_html))
+
+# Create a table for the classifier comparison
+classifier_names = list(classifier_results.keys())
+classifier_dev_acc = [classifier_results[ct]['dev_accuracy'] for ct in classifier_names]
+classifier_test_acc = [classifier_results[ct]['test_accuracy'] for ct in classifier_names]
+classifier_times = [classifier_results[ct]['training_time'] for ct in classifier_names]
+
+# Create a DataFrame for classifier comparison
+df_classifiers = pd.DataFrame({
+    'Classifier': classifier_names,
+    'Dev-test Accuracy': classifier_dev_acc,
+    'Test Accuracy': classifier_test_acc,
+    'Training Time (s)': classifier_times
+})
+
+# Create a figure for the classifier comparison
+fig2 = plt.figure(figsize=(10, 6))
+x = range(len(classifier_names))
+
+# Create the bar chart for classifiers
+plt.bar([i - bar_width/2 for i in x], classifier_dev_acc, bar_width, label='Dev-test Accuracy')
+plt.bar([i + bar_width/2 for i in x], classifier_test_acc, bar_width, label='Test Accuracy')
+
+# Add labels and title
+plt.xlabel('Classifier', fontsize=12)
+plt.ylabel('Accuracy', fontsize=12)
+plt.title(f'Performance Comparison of Different Classifiers with {best_extractor.__name__}', fontsize=14)
+plt.xticks(x, classifier_names, fontsize=10)
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.legend(fontsize=10)
+plt.tight_layout()
+
+# Convert the figure to HTML and display
+classifier_comparison_html = encode_figure_as_html(fig2)
+display(HTML("<h2>Classifier Performance Comparison</h2>"))
+display(HTML(classifier_comparison_html))
+
+# Create a breakdown of errors by gender
+male_dev_errors = [results[fe.__name__]['dev_male_error'] for fe in feature_extractors]
+female_dev_errors = [results[fe.__name__]['dev_female_error'] for fe in feature_extractors]
+male_test_errors = [results[fe.__name__]['test_male_error'] for fe in feature_extractors]
+female_test_errors = [results[fe.__name__]['test_female_error'] for fe in feature_extractors]
+
+# Create subplots for gender error analysis
+fig3, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+# Make sure we're using the correct range for x based on the feature extractors
+x_gender = range(len(feature_names))
+
+# Dev-test errors by gender
+ax1.bar([i - bar_width/2 for i in x_gender], male_dev_errors, bar_width, label='Male Error')
+ax1.bar([i + bar_width/2 for i in x_gender], female_dev_errors, bar_width, label='Female Error')
+ax1.set_xlabel('Feature Extractor', fontsize=12)
+ax1.set_ylabel('Error Rate', fontsize=12)
+ax1.set_title('Dev-test Error Rates by Gender', fontsize=14)
+ax1.set_xticks(x_gender)
+ax1.set_xticklabels(feature_names, rotation=45, ha='right', fontsize=9)
+ax1.grid(axis='y', linestyle='--', alpha=0.7)
+ax1.legend(fontsize=10)
+
+# Test errors by gender
+ax2.bar([i - bar_width/2 for i in x_gender], male_test_errors, bar_width, label='Male Error')
+ax2.bar([i + bar_width/2 for i in x_gender], female_test_errors, bar_width, label='Female Error')
+ax2.set_xlabel('Feature Extractor', fontsize=12)
+ax2.set_ylabel('Error Rate', fontsize=12)
+ax2.set_title('Test Error Rates by Gender', fontsize=14)
+ax2.set_xticks(x_gender)
+ax2.set_xticklabels(feature_names, rotation=45, ha='right', fontsize=9)
+ax2.grid(axis='y', linestyle='--', alpha=0.7)
+ax2.legend(fontsize=10)
+
+plt.tight_layout()
+
+# Convert the figure to HTML and display
+gender_error_html = encode_figure_as_html(fig3)
+display(HTML("<h2>Error Rates by Gender</h2>"))
+display(HTML(gender_error_html))
+
+# For HTML embedding in a document, you can use the HTML variables directly:
+# feature_comparison_html - Contains the HTML for the feature extractor comparison plot
+# classifier_comparison_html - Contains the HTML for the classifier comparison plot
+# gender_error_html - Contains the HTML for the gender error rates plot
+
+# Example of embedding in HTML document:
+# document_html = f"""
+# <h2>Feature Extractor Performance</h2>
+# {feature_comparison_html}
+# 
+# <h2>Classifier Performance</h2>
+# {classifier_comparison_html}
+# 
+# <h2>Gender Error Analysis</h2>
+# {gender_error_html}
+# """
+
+# Final analysis of our best model
+best_model_results = classifier_results[best_classifier_type]
+print("\nFinal Analysis of Best Model:")
+print(f"Feature Extractor: {best_extractor.__name__}")
+print(f"Classifier: {best_classifier_type}")
+print(f"Dev-test Accuracy: {best_model_results['dev_accuracy']:.4f}")
+print(f"Test Accuracy: {best_model_results['test_accuracy']:.4f}")
+print(f"Dev-test Errors - Male: {best_model_results['dev_male_error']:.4f}, Female: {best_model_results['dev_female_error']:.4f}")
+print(f"Test Errors - Male: {best_model_results['test_male_error']:.4f}, Female: {best_model_results['test_female_error']:.4f}")
+print(f"Training Time: {best_model_results['training_time']:.2f} seconds")
+
+# Create a results table for better presentation
+results_table = pd.DataFrame({
+    'Metric': ['Feature Extractor', 'Classifier', 'Dev-test Accuracy', 'Test Accuracy', 
+               'Dev-test Male Error Rate', 'Dev-test Female Error Rate',
+               'Test Male Error Rate', 'Test Female Error Rate', 'Training Time (s)'],
+    'Value': [best_extractor.__name__, best_classifier_type, 
+              f"{best_model_results['dev_accuracy']:.4f}", 
+              f"{best_model_results['test_accuracy']:.4f}",
+              f"{best_model_results['dev_male_error']:.4f}", 
+              f"{best_model_results['dev_female_error']:.4f}",
+              f"{best_model_results['test_male_error']:.4f}", 
+              f"{best_model_results['test_female_error']:.4f}",
+              f"{best_model_results['training_time']:.2f}"]
+})
+display(results_table)
+
+# Error analysis - find and display misclassified names
+def analyze_errors(classifier, feature_extractor, dataset):
+    """
+    Analyze which names the model misclassified to identify patterns in errors.
+    
+    Parameters:
+    classifier -- Trained classifier to use for predictions
+    feature_extractor -- Feature extraction function
+    dataset -- Dataset to analyze (list of (name, gender) tuples)
+    
+    Returns:
+    List of (name, actual_gender, predicted_gender) tuples for misclassified names
+    """
+    errors = []
+    for name, actual_gender in dataset:
+        features = feature_extractor(name)
+        predicted_gender = classifier.classify(features)
+        if predicted_gender != actual_gender:
+            errors.append((name, actual_gender, predicted_gender))
+    return errors
+
+# Identify misclassified names in both dev and test sets
+best_classifier = best_model_results['classifier']
+dev_errors = analyze_errors(best_classifier, best_extractor, dev_test_set)
+test_errors = analyze_errors(best_classifier, best_extractor, test_set)
+
+# Create DataFrames of misclassified names for better display
+misclassified_dev = pd.DataFrame(dev_errors[:15], columns=['Name', 'Actual Gender', 'Predicted Gender'])
+misclassified_test = pd.DataFrame(test_errors[:15], columns=['Name', 'Actual Gender', 'Predicted Gender'])
+
+print("\nSample of Misclassified Names in Dev-test Set:")
+display(misclassified_dev)
+
+print("\nSample of Misclassified Names in Test Set:")
+display(misclassified_test)
+
+# Display performance comparison between dev-test and test sets
+print("\nPerformance Comparison:")
+print(f"Best model dev-test accuracy: {best_model_results['dev_accuracy']:.4f}")
+print(f"Best model test accuracy: {best_model_results['test_accuracy']:.4f}")
+print(f"Difference: {abs(best_model_results['dev_accuracy'] - best_model_results['test_accuracy']):.4f}")
+
+```
+
+## Conclusions
+
+Our Naive Bayes Classifier had the best results. Best model dev-test accuracy: 0.8380 Best model test accuracy: 0.7920 Difference: 0.0460
+
+The dev-test set had the highest accuracy, demonstrating that feature engineering can significantly improve classification accuracy. The progression of the models from simple to complex showed that consistent improvement was attained thus indicating that names contain many gender-indicating patterns beyond just the last letter.
+
+The error rates for male and female names were not identical. In most cases, female names were easier to correctly classify than male names.
+
+The performance on the dev-test set was slightly better than the test set but they were both close indicating that our models have good generalization and that our classifier selection process was appropriate.
