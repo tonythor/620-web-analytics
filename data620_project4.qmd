@@ -1,0 +1,142 @@
+---
+title: "Final Project Proposal: Rethinking Film Genre Classification"
+author: "Tony and Mark"
+date: "20 April 2025"
+format:
+  html:
+    toc: true
+    number-sections: true
+    self-contained: true
+python: 
+  jupyter: data622
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+```{=html}
+<style>
+body {
+    width: 85%;          
+    max-width: 1400px;   
+    margin: 0 auto;      
+    padding: 0 2rem;     
+    font-family: Arial, sans-serif;
+    background-color: white;
+}
+
+.quarto-title-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+pre > code.sourceCode { 
+    white-space: pre; 
+    position: relative; 
+}
+
+div.sourceCode { 
+    margin: 1em 0; 
+    background-color: #f8f8f8;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 1em;
+}
+
+pre.sourceCode { 
+    margin: 0; 
+}
+
+@media screen {
+    div.sourceCode { 
+        overflow: auto; 
+    }
+}
+</style>
+```
+<a href="https://github.com/tonythor/620-web-analytics" target="_blank" rel="noopener noreferrer">github</a>
+
+# Project Overview
+
+This project investigates whether traditional film genres accurately reflect how movies are created and described.  By combining network science and natural language processing, we will analyze collaboration patterns and narrative  themes across thousands of films. Using structured data from IMDb and plot summaries from the OMDb API, we aim  to build a more data-driven and nuanced taxonomy of film genres that captures the complexity of modern filmmaking.
+
+# Research Questions
+
+* Do traditional film genres align with clusters formed by collaboration networks and narrative similarity?
+
+* Can we detect hidden sub-genres within broad categories like “War” and “Romance” using computational analysis?
+
+* How have genre boundaries shifted since 2000, and what new categories might better reflect today’s films?
+
+* What is the relationship between collaboration networks (director-actor-writer teams) and film themes?
+
+# Data Sources
+
+* Primary Dataset: IMDb non-commercial datasets including title.basics.tsv, title.crew.tsv, title.principals.tsv, name.basics.tsv, and title.ratings.tsv
+* Secondary Dataset: Plot summaries and additional metadata from the OMDb API
+* Scope: U.S. films released from 2000 to present with significant audience reception (>10,000 ratings)
+
+# Methodology
+
+## Network Analysis (NetworkX)
+
+We will construct and analyze multiple types of networks:
+
+1. Collaboration Networks:
+
+* Nodes will represent directors, writers, and actors  
+* Edges will indicate collaborations on specific films  
+* We will apply community detection algorithms (e.g., Louvain or Label Propagation) to uncover professional clusters  
+
+2. Film Similarity Networks:
+* Nodes will represent individual films  
+* Edges will encode similarity based on overlapping cast or crew  
+* Centrality measures (e.g., degree, betweenness) will highlight influential or bridging films within and across genres  
+
+## Natural Language Processing (NLTK)
+
+We will apply natural language processing (NLP) techniques to analyze plot summaries:
+
+1. Topic Modeling: Use Latent Dirichlet Allocation (LDA) to detect narrative themes across genres
+
+2. Sentiment Analysis: Apply tools like VADER or TextBlob to score emotional tone and visualize sentiment 
+patterns by genre
+
+3. Terminology Analysis: Identify distinctive keywords and phrases that characterize different types of films
+
+## Integrated Analysis
+
+1. Compare network-based film communities with theme-based clusters from topic modeling  
+2. Quantify divergence from IMDb genre labels using clustering metrics (e.g., Adjusted Rand Index)  
+3. Create interactive visualizations (e.g., network graphs or genre maps) to illustrate relationships and hybrid categories  
+
+
+# Expected Outcomes
+
+1. A revised, data-driven genre taxonomy that reveals:
+- Sub-genres hidden within broad categories  
+- Cross-genre hybrids that resist traditional labels  
+- New genre groupings emerging in 21st-century filmmaking  
+
+2. Interactive tools for exploring genre networks and relationships  
+
+3. Insights and recommendations for improving content tagging and discovery systems on streaming platforms  
+
+# Significance
+
+This project can enhance how content is organized, discovered, and recommended in the entertainment industry.  A more accurate understanding of genres allows us to:
+
+- Improve the accuracy of recommendation algorithms  
+- Support more effective audience targeting through better content tagging  
+- Reveal emerging trends in storytelling and production  
+- Offer deeper insights into audience preferences and evolving film styles  
+
+# References
+
+1. IMDb Non-Commercial Datasets: https://developer.imdb.com/non-commercial-datasets/
+2. OMDb API Documentation: http://www.omdbapi.com/
+3. Wasserman, S., & Faust, K. (1994). Social Network Analysis: Methods and Applications.
+4. Blei, D. M., Ng, A. Y., & Jordan, M. I. (2003). Latent Dirichlet Allocation.
+5. Suen, C., Huang, S., Eksombatchai, C., Sosic, R., & Leskovec, J. (2018). NIPS: Automatic construction of movie recommenders via social network analysis.

@@ -1,0 +1,968 @@
+---
+title: "IMDB Genre Analysis Project"
+author: "Tony and Mark"
+date: "April 26, 2025"
+format:
+  html:
+    toc: true
+    number-sections: true
+    self-contained: true
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+# Introduction: Beyond Traditional Genre Classification
+
+Film classification has long relied on a set of traditional genres that emerged organically throughout cinema history. These categories—Drama, Comedy, Action, Horror, and others—serve as a navigational framework for audiences and industry professionals alike. Yet in today's complex cinematic landscape, these conventional labels increasingly fail to capture the nuanced relationships between films or accurately reflect how stories are crafted and experienced.
+
+This research project applies advanced computational methods to investigate whether traditional film genres accurately represent contemporary filmmaking practices. By combining network science and natural language processing, we analyze a comprehensive dataset of over 3,600 films released since 2000, examining both the structural relationships between genres and the linguistic patterns in plot descriptions.
+Our dual methodological approach offers complementary perspectives: network analysis reveals how genres interconnect through co-occurrence patterns, while text analysis uncovers the distinctive linguistic signatures that characterize different film categories. This combination allows us to move beyond anecdotal observations about genre hybridization to identify statistically significant patterns in how films are actually classified and described.
+
+The findings suggest that the current genre system suffers from significant limitations, including the oversaturation of certain categories (particularly Drama) and the failure to recognize natural storytelling communities that cross traditional genre boundaries. Based on these insights, we propose an alternative classification framework organized around storytelling approaches rather than conventional genre labels—a system that better reflects the creative and thematic relationships in modern cinema.
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Document Setup Code"
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import re
+import os
+import requests
+import time
+from collections import Counter, defaultdict
+import math
+import random
+import string
+from IPython.display import HTML, display
+import base64
+import io
+import json
+from pathlib import Path
+from tqdm import tqdm
+from dotenv import load_dotenv
+
+# Import NetworkX for network analysis
+import networkx as nx
+from networkx.algorithms import community
+
+# Import NLTK for text processing
+import nltk
+from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.corpus import stopwords
+from nltk.probability import FreqDist
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.collocations import BigramAssocMeasures, BigramCollocationFinder
+from nltk.stem import WordNetLemmatizer
+from nltk.tag import pos_tag
+from nltk import ne_chunk
+from wordcloud import WordCloud
+
+# Import scikit-learn for advanced analysis
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+
+# Download necessary NLTK packages
+nltk.download('punkt', quiet=True)
+nltk.download('stopwords', quiet=True)
+nltk.download('vader_lexicon', quiet=True)
+nltk.download('wordnet', quiet=True)
+nltk.download('averaged_perceptron_tagger', quiet=True)
+nltk.download('maxent_ne_chunker', quiet=True)
+nltk.download('words', quiet=True)
+
+# Import our custom modules
+from data620.imdb_data_loader import IMDbDataLoader
+from data620.omdb import OMDbConverter, OMDbDownloader
+
+# Helper function to encode plots as base64 for direct HTML embedding
+
+default_fig_width = 700
+
+def save_plot_as_base64(plt, dpi=300, width=default_fig_width):
+    """Save a matplotlib plot as base64-encoded image"""
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=dpi)
+    plt.close()
+    img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    img_html = f'<img src="data:image/png;base64,{img_base64}" alt="Plot" width="{width}" />'
+    return img_html
+
+```
+
+# Load IMDB Data
+
+We begin by loading and filtering data from the IMDB dataset. We're specifically interested in movies released since 2000 with ratings of 6.0 or higher and at least 5,000 votes.
+
+For movies (titles dataset):
+
+* Movies only (filters out TV shows, short films, etc.)
+* Released in 2000 or later (configurable via min_year parameter)
+* Has a minimum rating of 5.0 or higher (configurable via min_rating parameter)
+* Has at least 5,000 votes (configurable via min_votes parameter)
+
+For other datasets:
+
+* Principals (cast and crew): Only those associated with the filtered movies
+* Names (people): Only those who appear in the filtered principals dataset
+* Crew: Only those associated with the filtered movies
+* Episodes: Only those associated with the filtered movies (though this wouldn't contain much since we filtered for movies only)
+* Akas (alternative titles): Only those associated with the filtered movies
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Load IMDB Data Code"
+imdb = IMDbDataLoader(
+    min_year=2000,  
+    min_votes=5000, 
+    min_rating=5.0  
+)
+
+imdb.load()
+imdb.print_summary()
+print("\nSample of filtered movies:")
+print(imdb.titles[['tconst', 'primaryTitle', 'startYear', 'genres']].head())
+```
+<details>
+<summary><i>library code: imdb data loader</i></summary>
+```{python}
+#| echo: false
+#| output: asis
+file_path = "./data620/imdb_data_loader.py"
+with open(file_path, "r") as file:
+    code_content = file.read()
+print("```python")
+print(code_content)
+print("```")
+```
+</details>
+
+# Enriching With OMDB Data
+
+Next, we'll enhance our dataset with additional details from the Open Movie Database (OMDB) API. This will provide us with richer information including plot summaries, director names, and box office figures.
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Enriching With OMDB Data Code"
+load_dotenv(dotenv_path='nogit.apikey')  # or just .env if that's your filename
+api_key = os.getenv("omdb_api_key")
+
+if not api_key:
+    raise ValueError("OMDB API key not found. Please set it in your environment or .env file")
+
+# Function to download OMDB data for our IMDB movies
+def enrich_with_omdb_data(imdb_loader, api_key, batch_size=10, pause_seconds=1, output_path="nogit_omdb_enriched.parquet"):
+    """
+    Enhance IMDB data with data from OMDB API
+    
+    Args:
+        imdb_loader: IMDbDataLoader with loaded data
+        api_key: OMDB API key
+        batch_size: Number of movies to fetch in each batch
+        pause_seconds: Seconds to pause between batches
+        output_path: Path to save the enriched dataset
+        
+    Returns:
+        DataFrame with combined IMDB and OMDB data
+    """
+    # Initialize OMDB tools
+    downloader = OMDbDownloader(api_key)
+    converter = OMDbConverter()
+    
+    # Check if output already exists
+    if os.path.exists(output_path):
+        print(f"Loading existing enriched data from {output_path}")
+        return pd.read_parquet(output_path)
+    
+    # Get all IMDB IDs
+    imdb_ids = imdb_loader.titles['tconst'].tolist()
+    total_ids = len(imdb_ids)
+    print(f"Fetching OMDB data for {total_ids} movies...")
+    
+    # Process in batches
+    all_omdb_data = []
+    
+    for i in tqdm(range(0, total_ids, batch_size)):
+        # Get current batch
+        batch_ids = imdb_ids[i:i+batch_size]
+        
+        try:
+            # Fetch data for batch
+            responses = downloader.fetch_by_ids(batch_ids)
+            
+            # Convert to DataFrame
+            batch_df = converter.responses_to_dataframe(responses)
+            
+            # Clean the data
+            batch_df = converter.clean_dataframe(batch_df)
+            
+            # Add to results
+            all_omdb_data.append(batch_df)
+            
+            # Pause to respect rate limits
+            time.sleep(pause_seconds)
+            
+        except Exception as e:
+            print(f"Error processing batch {i//batch_size} (IDs {batch_ids}): {e}")
+    
+    # Combine all batches
+    if all_omdb_data:
+        omdb_df = pd.concat(all_omdb_data, ignore_index=True)
+        print(f"Retrieved data for {len(omdb_df)} movies from OMDB")
+        
+        # Merge IMDB and OMDB data (left join to keep all IMDB entries)
+        merged_df = pd.merge(
+            imdb_loader.titles,
+            omdb_df,
+            left_on='tconst',
+            right_on='imdbid',
+            how='left'
+        )
+        
+        # Save the enriched dataset
+        merged_df.to_parquet(output_path)
+        print(f"Saved enriched dataset to {output_path}")
+        
+        return merged_df
+    else:
+        print("No OMDB data retrieved")
+        return imdb_loader.titles
+
+# Get enriched dataset
+enriched_df = enrich_with_omdb_data(imdb, api_key)
+
+# Display the enriched data
+print("\nSample of enriched data:")
+display_cols = ['tconst', 'primaryTitle', 'startYear', 'genres', 
+                'plot', 'director', 'imdbrating', 'boxoffice_value', 'country']
+display_cols = [col for col in display_cols if col in enriched_df.columns]
+print(enriched_df[display_cols].head())
+
+# Check what percentage of movies were successfully enriched
+omdb_match_rate = enriched_df['imdbid'].notna().mean() * 100
+print(f"\nSuccessfully enriched {omdb_match_rate:.1f}% of movies with OMDB data")
+```
+<details>
+<summary><i>library code: omdb integration</i></summary>
+```{python}
+#| echo: false
+#| output: asis
+file_path = "./data620/omdb.py"
+with open(file_path, "r") as file:
+    code_content = file.read()
+print("```python")
+print(code_content)
+print("```")
+```
+</details>
+
+
+# Exploratory Data Analysis
+
+Now let's explore our enriched dataset to understand the distribution of genres, ratings, and other key characteristics.
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Exploratory Data Analysis Code"
+# Create genre list if not already present
+if 'genre_list' not in enriched_df.columns and 'genres' in enriched_df.columns:
+    enriched_df['genre_list'] = enriched_df['genres'].str.split(',').apply(
+        lambda x: [g.strip() for g in x] if isinstance(x, list) else []
+    )
+
+# Count genre occurrences
+all_genres = []
+for genres in enriched_df['genre_list']:
+    if isinstance(genres, list):
+        all_genres.extend(genres)
+
+genre_counts = Counter(all_genres)
+top_genres = genre_counts.most_common()
+
+# Create a dataframe for visualization
+genre_df = pd.DataFrame(top_genres, columns=['Genre', 'Count'])
+genre_df['Percentage'] = genre_df['Count'] / len(enriched_df) * 100
+
+# Plot genre distribution
+plt.figure(figsize=(12, 6))
+sns.barplot(x='Genre', y='Count', data=genre_df.head(15))
+plt.title('Top 15 Genres in Dataset')
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+genre_dist_plot = save_plot_as_base64(plt, width=700)
+
+# Display the plot
+display(HTML(genre_dist_plot))
+
+# Analyze ratings distribution
+plt.figure(figsize=(10, 6))
+sns.histplot(enriched_df['imdbrating'].dropna(), bins=20, kde=True)
+plt.title('Distribution of IMDb Ratings')
+plt.xlabel('Rating')
+plt.ylabel('Count')
+rating_dist_plot = save_plot_as_base64(plt, width=700)
+display(HTML(rating_dist_plot))
+
+# Analyze box office distribution
+if 'boxoffice_value' in enriched_df.columns:
+    # Filter out missing values and potential outliers
+    boxoffice_data = enriched_df['boxoffice_value'].dropna()
+    boxoffice_data = boxoffice_data[boxoffice_data > 0]
+    
+    plt.figure(figsize=(10, 6))
+    sns.histplot(boxoffice_data, bins=20, kde=True)
+    plt.title('Distribution of Box Office Earnings')
+    plt.xlabel('Box Office Value')
+    plt.ylabel('Count')
+    plt.ticklabel_format(style='plain', axis='x')
+    boxoffice_dist_plot = save_plot_as_base64(plt, width=700)
+    display(HTML(boxoffice_dist_plot))
+
+# Movies by year
+plt.figure(figsize=(10, 6))
+year_counts = enriched_df['startYear'].value_counts().sort_index()
+sns.barplot(x=year_counts.index, y=year_counts.values)
+plt.title('Movies by Release Year')
+plt.xlabel('Year')
+plt.ylabel('Count')
+plt.xticks(rotation=45)
+year_dist_plot = save_plot_as_base64(plt, width=700)
+display(HTML(year_dist_plot))
+
+# Analysis by country
+if 'country' in enriched_df.columns:
+    # Extract primary country
+    enriched_df['primary_country'] = enriched_df['country'].str.split(',').str[0]
+    
+    # Count by country
+    country_counts = enriched_df['primary_country'].value_counts().head(15)
+    
+    plt.figure(figsize=(12, 6))
+    sns.barplot(x=country_counts.index, y=country_counts.values)
+    plt.title('Top 15 Countries of Origin')
+    plt.xlabel('Country')
+    plt.ylabel('Count')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    country_dist_plot = save_plot_as_base64(plt, width=800)
+    display(HTML(country_dist_plot))
+```
+
+# Genre Network Structure and Methodology
+
+Let's analyze how different genres relate to each other using network analysis. We'll create a network where nodes are genres and edges represent co-occurrence in movies.
+
+## Core Network Creation and Analysis
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Core Network Creation and Analysis Code"
+G_genre = nx.Graph()
+
+# Add nodes for each genre
+for genre in set(all_genres):
+    G_genre.add_node(genre)
+
+# Add edges for co-occurring genres
+for genres in enriched_df['genre_list']:
+    if not isinstance(genres, list) or len(genres) < 2:
+        continue
+        
+    for i in range(len(genres)):
+        for j in range(i+1, len(genres)):
+            if G_genre.has_edge(genres[i], genres[j]):
+                G_genre[genres[i]][genres[j]]['weight'] += 1
+            else:
+                G_genre.add_edge(genres[i], genres[j], weight=1)
+
+# Calculate genre popularity for later use
+genre_popularity = {genre: all_genres.count(genre) for genre in set(all_genres)}
+
+# Calculate basic network statistics
+density = nx.density(G_genre)
+avg_clustering = nx.average_clustering(G_genre)
+transitivity = nx.transitivity(G_genre)
+
+print(f"Genre Network Statistics:")
+print(f"Number of Nodes (Genres): {G_genre.number_of_nodes()}")
+print(f"Number of Edges (Co-occurrences): {G_genre.number_of_edges()}")
+print(f"Network Density: {density:.4f}")
+print(f"Average Clustering Coefficient: {avg_clustering:.4f}")
+print(f"Transitivity: {transitivity:.4f}")
+
+# Calculate node centrality measures
+degree_centrality = nx.degree_centrality(G_genre)
+betweenness_centrality = nx.betweenness_centrality(G_genre)
+eigenvector_centrality = nx.eigenvector_centrality(G_genre, max_iter=1000)
+
+# Create centrality dataframe
+centrality_data = []
+for genre in G_genre.nodes():
+    centrality_data.append({
+        'Genre': genre,
+        'Degree Centrality': degree_centrality[genre],
+        'Betweenness Centrality': betweenness_centrality[genre],
+        'Eigenvector Centrality': eigenvector_centrality[genre]
+    })
+
+centrality_df = pd.DataFrame(centrality_data)
+centrality_df = centrality_df.sort_values('Eigenvector Centrality', ascending=False)
+print("\nGenre Centrality Measures (Top 5):")
+print(centrality_df.head())
+
+# Find minimum edge weight threshold to keep ~30% of strongest connections
+edge_weights = [G_genre[u][v]['weight'] for u, v in G_genre.edges()]
+weight_threshold = np.percentile(edge_weights, 70)  
+print(f"\nEdge weight threshold (keeping top 30% of connections): {weight_threshold:.1f}")
+
+# Create a simplified graph with only strong connections
+G_simplified = nx.Graph()
+for genre in G_genre.nodes():
+    G_simplified.add_node(genre)
+
+for u, v, data in G_genre.edges(data=True):
+    if data['weight'] >= weight_threshold:
+        G_simplified.add_edge(u, v, weight=data['weight'])
+
+print(f"Simplified network: {G_simplified.number_of_nodes()} nodes, {G_simplified.number_of_edges()} edges")
+```
+## Genre Co-occurence Matrix
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Genre Co-occurence Matrix Code"
+top_genres = [genre for genre, count in genre_counts.most_common(10)]
+top_genres_set = set(top_genres)
+
+# Create a subgraph of just the top genres
+G_top = nx.Graph()
+for genre in top_genres:
+    G_top.add_node(genre)
+
+for u, v, data in G_genre.edges(data=True):
+    if u in top_genres_set and v in top_genres_set:
+        G_top.add_edge(u, v, weight=data['weight'])
+
+# Create a heatmap of genre co-occurrences for the top genres
+plt.figure(figsize=(12, 10))
+
+# Create a co-occurrence matrix
+genre_matrix = np.zeros((len(top_genres), len(top_genres)))
+for i, genre1 in enumerate(top_genres):
+    for j, genre2 in enumerate(top_genres):
+        if i == j:  # Self-connection, use total count
+            genre_matrix[i, j] = genre_popularity[genre1]
+        elif G_genre.has_edge(genre1, genre2):
+            genre_matrix[i, j] = G_genre[genre1][genre2]['weight']
+
+plt.figure(figsize=(12, 10))
+sns.heatmap(genre_matrix, annot=True, fmt=".0f", cmap="YlGnBu",
+            xticklabels=top_genres, yticklabels=top_genres)
+plt.title('Co-occurrence Matrix of Top 10 Genres', fontsize=16)
+plt.tight_layout()
+genre_heatmap = save_plot_as_base64(plt, width=800)
+display(HTML(genre_heatmap))
+```
+
+### Interpretation: Co-occurrence Matrix of Top 10 Genres
+The co-occurrence heatmap reveals the frequency with which genres appear together in films. Drama emerges as the dominant genre with 2,396 movies, forming strong partnerships with Crime (442 co-occurrences), Romance (369), and Biography (368). Other notable patterns include the frequent pairing of Action and Adventure (286 movies), Mystery and Horror (111 movies), and Comedy and Romance (212 movies).
+
+The diagonal values represent the total count of each genre, showing Drama (2,396), Comedy (1,075), and Action (883) as the most common genres in our dataset. The color intensity provides a visual indication of relationship strength, with the darkest shades representing the most frequent occurrences.
+
+
+## Bridge Genres Analysis
+```{python}
+#| code-fold: true
+#| code-summary: "View Bridge Genres Analysis Code"
+bridge_genres = centrality_df.sort_values('Betweenness Centrality', ascending=False).head(10)
+
+plt.figure(figsize=(14, 8))
+sns.barplot(x='Betweenness Centrality', y='Genre', data=bridge_genres, palette='viridis')
+plt.title('Top 10 Bridge Genres\n(Genres that connect different communities)', fontsize=16)
+plt.xlabel('Betweenness Centrality', fontsize=14)
+plt.ylabel('Genre', fontsize=14)
+plt.xticks(fontsize=12)
+plt.yticks(fontsize=12)
+plt.tight_layout()
+bridge_bar = save_plot_as_base64(plt, width=800)
+display(HTML(bridge_bar))
+
+```
+### Interpretation: Bridge Genres 
+The bridge genres analysis identifies which genres serve as connectors between different film communities. Drama shows the highest betweenness centrality by a significant margin, confirming its role as the universal connector in the film ecosystem. Comedy ranks second, followed by Adventure, Biography, and Documentary. These genres facilitate cross-community storytelling, allowing themes and elements to flow between otherwise disparate film types.
+
+## Unexpected Genre Combinations
+```{python}
+#| code-fold: true
+#| code-summary: "View Unexptected Genre Combinations Code"
+unexpected_combos = []
+
+for u, v, data in G_genre.edges(data=True):
+    # Expected co-occurrence if genres appeared together randomly
+    expected = (genre_popularity[u] * genre_popularity[v]) / len(enriched_df)
+    actual = data['weight']
+    ratio = actual / expected if expected > 0 else 0
+    
+    if ratio > 2 and actual > 5:  # Much more common than expected
+        unexpected_combos.append((u, v, actual, ratio))
+
+# Create visualization of unexpected genre combinations
+plt.figure(figsize=(14, 8))
+unexpected_df = pd.DataFrame(sorted(unexpected_combos, key=lambda x: x[3], reverse=True)[:10], 
+                             columns=['Genre1', 'Genre2', 'Count', 'Ratio'])
+unexpected_df['Pair'] = unexpected_df.apply(lambda x: f"{x['Genre1']} + {x['Genre2']}", axis=1)
+sns.barplot(x='Ratio', y='Pair', data=unexpected_df, palette='rocket')
+plt.title('Unexpected Genre Combinations\n(Appearing more often than random chance would predict)', fontsize=16)
+plt.xlabel('Times more frequent than expected', fontsize=14)
+plt.ylabel('Genre Combination', fontsize=14)
+# Add count annotations
+for i, row in enumerate(unexpected_df.itertuples()):
+    plt.text(row.Ratio + 0.1, i, f"{row.Count} movies", va='center', fontsize=12)
+plt.tight_layout()
+unexpected_bar = save_plot_as_base64(plt, width=800)
+display(HTML(unexpected_bar))
+```
+
+### Interpretation: Unexpected Genre Combinations
+
+This visualization highlights genre pairings that occur more frequently than random chance would predict. Animation + Adventure appears 5.2x more often than expected (178 movies), revealing a strong established tradition. Other notable unexpected combinations include Documentary + Music (3.9x, 33 movies), History + War (3.8x, 20 movies), and Mystery + Horror (3.5x, 111 movies). These statistical outliers point to specialized sub-genres that have developed their own conventions and audience expectations.
+
+
+## Genre Communities
+```{python}
+#| code-fold: true
+#| code-summary: "View Genre Communites Code"
+communities = community.greedy_modularity_communities(G_simplified)
+
+# Create visualization of communities
+community_sizes = [len(comm) for comm in communities]
+community_df = pd.DataFrame({
+    'Community': [f"Community {i+1}" for i in range(len(communities))],
+    'Size': community_sizes,
+    'Genres': [', '.join(sorted(comm)) for comm in communities]
+})
+community_df = community_df.sort_values('Size', ascending=False)
+
+plt.figure(figsize=(14, 10))
+sns.barplot(x='Size', y='Community', data=community_df, palette='Set2')
+plt.title('Genre Communities Identified in the Network', fontsize=16)
+plt.xlabel('Number of Genres in Community', fontsize=14)
+plt.ylabel('Community', fontsize=14)
+
+# Add genre text annotations
+for i, row in enumerate(community_df.itertuples()):
+    if len(row.Genres) > 60:  # If text is too long, truncate
+        genres_text = row.Genres[:57] + '...'
+    else:
+        genres_text = row.Genres
+    plt.text(row.Size + 0.1, i, genres_text, va='center', fontsize=11)
+
+plt.tight_layout()
+community_bar = save_plot_as_base64(plt, width=800)
+display(HTML(community_bar))
+
+```
+
+### Interpretation: Genre Communites
+Our analysis identified eight distinct communities of genres that naturally cluster together:
+
+1. Emotional/character-driven narratives: Comedy, Drama, Family, Music, Romance, War (6 genres)
+2. Fact-based content: Biography, Crime, Documentary, History, Sport (5 genres)
+3. Spectacle/fantasy-based genres: Action, Adventure, Animation, Fantasy, Sci-Fi (5 genres)
+4. Tension-driven genres: Horror, Mystery, Thriller (3 genres)
+5. Adult: Standing alone as its own community (1 genre)
+6. Western: Standing alone as its own community (1 genre)
+7. News: Standing alone as its own community (1 genre)
+8. Musical: Standing alone as its own community (1 genre)
+
+This community structure reveals how certain genres naturally align in filmmaking practices, while others maintain distinct identities with minimal overlap to other genres.
+
+## Top 15 Genres Network
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Top 15 Genres Network Code"
+plt.figure(figsize=(16, 12))
+
+# Get the top 15 genres by popularity
+top_n_genres = 15
+visual_genres = [genre for genre, _ in genre_counts.most_common(top_n_genres)]
+visual_genres_set = set(visual_genres)
+
+# Create subgraph
+G_visual = nx.Graph()
+for genre in visual_genres:
+    G_visual.add_node(genre)
+
+# Add edges between these genres only if they have a strong connection
+for u, v, data in G_genre.edges(data=True):
+    if u in visual_genres_set and v in visual_genres_set:
+        # Only include edges with significant weight (top 30%)
+        if data['weight'] >= weight_threshold:
+            G_visual.add_edge(u, v, weight=data['weight'])
+
+# Use a more controlled layout for better spacing
+pos = nx.kamada_kawai_layout(G_visual)
+
+# Node colors based on community
+genre_to_community = {}
+for i, comm in enumerate(communities):
+    for genre in comm:
+        genre_to_community[genre] = i
+
+# Draw edges with varying thickness based on connection strength
+edge_weights = [G_visual[u][v]['weight']/50 for u, v in G_visual.edges()]
+nx.draw_networkx_edges(G_visual, pos, width=edge_weights, alpha=0.7, edge_color='gray')
+
+# Map node sizes to genre popularity
+node_sizes = [genre_popularity.get(genre, 10)/5 for genre in G_visual.nodes()]
+
+# Define a color map based on communities
+cmap = plt.cm.tab20
+node_colors = [cmap(genre_to_community.get(genre, 0) % 20) for genre in G_visual.nodes()]
+
+# Draw nodes
+nx.draw_networkx_nodes(G_visual, pos, 
+                       node_size=node_sizes, 
+                       node_color=node_colors, 
+                       alpha=0.9,
+                       linewidths=2,
+                       edgecolors='white')
+
+# Draw labels with better visibility
+nx.draw_networkx_labels(G_visual, pos, 
+                        font_size=10,
+                        font_weight='bold',
+                        font_color='black',
+                        bbox=dict(boxstyle="round,pad=0.3", 
+                                  fc="white", 
+                                  ec="none", 
+                                  alpha=0.9))
+
+# Add a title
+plt.title('Network of Top 15 Genres\nNode size = popularity, Edge thickness = co-occurrence frequency', 
+          fontsize=16)
+plt.axis('off')
+plt.tight_layout()
+visual_network = save_plot_as_base64(plt, width=800)
+display(HTML(visual_network))
+
+```
+### Interpretation: Top 15 Genres Network
+
+The network visualization displays the relationships among the most popular genres, with node size indicating popularity and edge thickness representing co-occurrence frequency. Drama occupies the central position in this network, with strong connections to multiple genres. The layout reveals the clustering patterns identified in our community analysis, with clear groupings around similar narrative approaches.
+
+## Community 1 Internal Structure
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Community 1 Internal Structure Code"
+largest_community = max(communities, key=len)
+community_name = f"Community {list(communities).index(largest_community) + 1}"
+
+plt.figure(figsize=(14, 10))
+
+# Create subgraph for this community
+G_comm = nx.Graph()
+for genre in largest_community:
+    G_comm.add_node(genre)
+
+for u, v, data in G_genre.edges(data=True):
+    if u in largest_community and v in largest_community:
+        G_comm.add_edge(u, v, weight=data['weight'])
+
+# Use a spring layout for this smaller graph
+pos_comm = nx.spring_layout(G_comm, k=0.3, seed=42)
+
+# Draw edges
+edge_weights = [G_comm[u][v]['weight']/20 for u, v in G_comm.edges()]
+nx.draw_networkx_edges(G_comm, pos_comm, width=edge_weights, alpha=0.7, edge_color='darkblue')
+
+# Node sizes based on popularity
+node_sizes = [genre_popularity.get(genre, 10) * 2 for genre in G_comm.nodes()]
+
+# Draw nodes
+nx.draw_networkx_nodes(G_comm, pos_comm, 
+                       node_size=node_sizes, 
+                       node_color='lightblue', 
+                       alpha=0.9,
+                       edgecolors='blue')
+
+# Draw labels
+nx.draw_networkx_labels(G_comm, pos_comm, 
+                        font_size=12,
+                        font_weight='bold',
+                        bbox=dict(boxstyle="round,pad=0.3", 
+                                  fc="white", 
+                                  ec="none", 
+                                  alpha=0.9))
+
+# Title
+plt.title(f'Connections Within {community_name}: {", ".join(sorted(largest_community))}', 
+          fontsize=16)
+plt.axis('off')
+plt.tight_layout()
+community_network = save_plot_as_base64(plt, width=800)
+display(HTML(community_network))
+
+```
+
+### Interpretation: Community 1 Internal Structure
+
+The detailed view of Community 1 (Comedy, Drama, Family, Music, Romance, War) shows that even within this community, Drama serves as the central hub. The strongest connections exist between Drama and Comedy, Drama and Romance, and Comedy and Romance, suggesting these form the core triangle of character-driven storytelling. Family, Music, and War connect primarily through Drama rather than directly to each other, positioning Drama as the essential mediating genre in this community.
+
+## Summary and Conclusions
+Together, these visualizations provide a data-driven map of the modern film genre landscape, revealing both the established patterns and surprising connections that shape contemporary cinema. The analysis shows:
+
+1. Drama is the most central and versatile genre, connecting with nearly all other genres
+2. Clear genre communities exist based on storytelling approach (character-driven, fact-based, spectacle-based, tension-driven)
+3. Some unexpected genre combinations occur significantly more often than random chance would predict
+4. Several genres (Adult, Western, News, Musical) maintain distinct identities with limited connections to other genres
+5. Within communities, there are typically central hub genres that connect to peripheral genres
+
+This network-based approach to analyzing film genres provides valuable insights for filmmakers, critics, and audiences in understanding the structure and evolution of cinematic storytelling.
+
+
+# Text Analysis of Movie Plots
+Now let's analyze the plot descriptions to understand linguistic patterns across different genres.
+
+## Common Terms Analysis
+
+For this first section, let's look at the corpus, before we start looking at just dramas, action movies, etc. How do all of these look together?
+ 
+```{python}
+#| code-fold: true
+#| code-summary: "View Common Terms Analysis Code"
+stop_words = set(stopwords.words('english'))
+lemmatizer = WordNetLemmatizer()
+
+# Tokenize and preprocess text
+def preprocess_text(text):
+    if not isinstance(text, str):
+        return []
+        
+    # Tokenize
+    tokens = word_tokenize(text.lower())
+    # Remove punctuation and numbers
+    tokens = [word for word in tokens if word.isalpha()]
+    # Remove stopwords
+    tokens = [word for word in tokens if word not in stop_words]
+    # Lemmatize
+    tokens = [lemmatizer.lemmatize(word) for word in tokens]
+    return tokens
+
+# Process plot descriptions
+if 'plot' in enriched_df.columns:
+    enriched_df['plot_tokens'] = enriched_df['plot'].apply(preprocess_text)
+    
+    # Calculate token counts
+    enriched_df['plot_token_count'] = enriched_df['plot_tokens'].apply(len)
+    
+    # Create a frequency distribution of all tokens
+    all_plot_tokens = [token for tokens in enriched_df['plot_tokens'] for token in tokens]
+    plot_fdist = FreqDist(all_plot_tokens)
+    
+    # either this or the chart, let's see which we like more.
+    # print("\nMost Common Terms in Plot Descriptions:")
+    # for word, count in plot_fdist.most_common(20):
+    #     print(f"{word}: {count}")
+    
+    # Plot term frequency
+    plt.figure(figsize=(12, 6))
+    plot_fdist.plot(30, cumulative=False)
+    plt.title('30 Most Common Terms in Plot Descriptions')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    freq_plot = save_plot_as_base64(plt)
+    display(HTML(freq_plot))
+
+wordcloud = WordCloud(
+    width=default_fig_width, 
+    height=400, 
+    background_color='white',
+    max_words=100,
+    contour_width=3
+).generate(' '.join(all_plot_tokens))
+
+plt.figure(figsize=(10, 7))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title('Word Cloud of Plot Terms')
+wordcloud_plot = save_plot_as_base64(plt, width=700)
+display(HTML(wordcloud_plot))
+
+```
+### Interpretation: Common Terms Analysis
+
+The frequency analysis of plot descriptions reveals the storytelling priorities of contemporary cinema. The term "life" dominates with 1,262 occurrences, highlighting film's enduring focus on human experience and existential themes. This universal concern is complemented by narrative framework terms such as "find" (687), "world" (637), and "story" (613), which establish the quest-driven nature of modern screenplays.
+
+Relationship-focused words create the second major thematic cluster, with "family" (672), "friend" (501), "father" (370), and various interpersonal connections appearing prominently. These terms underscore cinema's preoccupation with human bonds as both emotional anchors and sources of conflict. *The notable frequency disparity between "man" (491) and "woman" (383) points to persistent gender imbalances in character representation across genres.*
+
+Action-oriented verbs ("find," "get," "take") appear with high frequency, reflecting cinema's preference for goal-driven narratives with clear stakes and motivations. Meanwhile, temporal markers like "time," "year," and "day" serve as structural elements that frame these narrative journeys.
+
+The word cloud visualization effectively maps this emotional and thematic landscape, with the size variations between terms offering immediate insight into storytelling priorities. The prominence of both intimate terms ("life," "family," "father") and expansive concepts ("world," "time") illustrates how cinema constantly navigates between personal stories and broader contexts. These linguistic patterns transcend individual genres to form the foundational vocabulary of contemporary filmmaking, upon which genre-specific language variations are built.
+
+## Genre-Specific Word Clouds
+```{python}
+#| code-fold: true
+#| code-summary: "View Genre-Specific Word Clouds Code"
+# Group plots by genre for genre-specific analysis
+genre_texts = {}
+
+for genre in set(all_genres):
+    # Get movies with this genre
+    genre_movies = enriched_df[enriched_df['genre_list'].apply(lambda x: genre in x if isinstance(x, list) else False)]
+    # Combine plot tokens
+    genre_tokens = [token for tokens in genre_movies['plot_tokens'] for token in tokens]
+    genre_texts[genre] = genre_tokens
+
+# Create word clouds for top genres
+top_n_genres = 5
+top_genres = [genre for genre, _ in genre_counts.most_common(top_n_genres)]
+
+for genre in top_genres:
+    if genre in genre_texts and len(genre_texts[genre]) > 50:
+        genre_wordcloud = WordCloud(
+            width=default_fig_width, 
+            height=400, 
+            background_color='white',
+            max_words=100,
+            contour_width=3
+        ).generate(' '.join(genre_texts[genre]))
+        
+        plt.figure(figsize=(10, 7))
+        plt.imshow(genre_wordcloud, interpolation='bilinear')
+        plt.axis('off')
+        plt.title(f'{genre} Word Cloud')
+        genre_wordcloud_plot = save_plot_as_base64(plt, width=700)
+        display(HTML(f"<h3>{genre} Word Cloud</h3>"))
+        display(HTML(genre_wordcloud_plot))
+
+```
+
+
+### Interpretation: Genre-Specific Word Clouds
+
+**Drama Word Cloud**
+
+The Drama genre's word cloud highlights its focus on interpersonal dynamics and emotional journeys. "Life" dominates the visualization, reflecting the genre's exploration of human existence. Terms like "father," "family," "mother," and "wife" demonstrate Drama's emphasis on familial relationships and domestic situations. The prominence of emotionally charged words such as "love," "want," and "need" illustrates the internal conflicts that drive dramatic narratives. Unlike action-oriented genres, Drama's language centers on emotional states, relationships, and personal growth, creating character-driven rather than plot-driven stories.
+
+**Comedy Word Cloud** 
+
+Comedy's word cloud reveals a distinctive linguistic pattern centered on social interactions and lighthearted situations. While "life" remains prominent, terms like "friend," "help," and "plan" suggest the collaborative escapades common in comedic narratives. Notably, Comedy features more present-tense action verbs ("get," "go," "find") compared to Drama, reflecting the genre's emphasis on immediate situations and reactions rather than long-term emotional development. The appearance of "day" and "night" hints at the time-compressed nature of many comedic plots, often taking place over short, incident-packed timeframes.
+
+**Action Word Cloud**
+
+The Action genre's vocabulary is distinctly mission-oriented, with terms like "find," "world," and "team" dominating the visualization. Unlike Drama's focus on internal emotional states, Action emphasizes external threats and physical challenges. Words like "mission," "agent," "enemy," and "power" create a landscape of conflict and high stakes. The term "world" appears more prominently than in other genres, indicating the larger scope and global implications common in Action narratives. Character terms tend to be more functional (based on roles like "agent" or "soldier") rather than relational, reflecting the genre's priority of plot mechanics over character development.
+
+**Crime Word Cloud**
+Crime narratives display a specialized vocabulary centered around investigation and criminal activity. Terms like "police," "murder," "detective," and "case" establish the procedural framework common in the genre. The prominence of "find" and "discover" highlights the investigative focus, while "family" suggests the personal stakes or motivations behind criminal activities. Interestingly, time-related terms ("year," "day," "night") feature strongly, reflecting the genre's preoccupation with timelines, alibis, and the reconstruction of events. The vocabulary creates a world of mystery and moral complexity where truth is obscured and must be uncovered.
+
+**Thriller Word Cloud**
+The Thriller genre combines elements of suspense with psychological depth. Core terms like "find" and "discover" reflect the investigative aspects similar to Crime, but with an added emphasis on psychological terms like "know," "truth," and "secret." Words like "life" and "death" highlight the high personal stakes in thriller narratives. The presence of time-related words ("time," "day," "night") creates a sense of urgency and deadline pressure characteristic of the genre. Unlike pure Action, the Thriller vocabulary suggests threats that are often hidden or mysterious rather than overt, creating tension through uncertainty rather than spectacle.
+These genre-specific language patterns reflect distinct storytelling approaches, character dynamics, and narrative structures that define each film category. The visualizations demonstrate how filmmakers employ specialized vocabulary to create genre-specific emotional and narrative experiences for audiences.
+
+## Cross-Genre Language Comparison
+To further enhance the text analysis section, we could add a quantitative comparison of language across genres. Here's a proposed addition:
+
+```{python}
+#| code-fold: true
+#| code-summary: "View Cross-Genre Language Comparison Code"
+# Create a function to calculate TF-IDF values for genres
+def calculate_genre_tfidf():
+    # Create a document for each genre
+    genre_documents = {}
+    for genre in set(all_genres):
+        if genre in genre_texts and len(genre_texts[genre]) > 50:
+            genre_documents[genre] = ' '.join(genre_texts[genre])
+    
+    # Calculate TF-IDF
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    vectorizer = TfidfVectorizer(max_features=1000)
+    
+    # Get genre names in a consistent order
+    genres_list = list(genre_documents.keys())
+    
+    # Fit the vectorizer
+    tfidf_matrix = vectorizer.fit_transform([genre_documents[genre] for genre in genres_list])
+    
+    # Get feature names (words)
+    feature_names = vectorizer.get_feature_names_out()
+    
+    # Create a dictionary of distinctive words for each genre
+    distinctive_words = {}
+    for i, genre in enumerate(genres_list):
+        tfidf_scores = tfidf_matrix[i].toarray()[0]
+        word_scores = [(feature_names[j], tfidf_scores[j]) for j in range(len(feature_names))]
+        word_scores.sort(key=lambda x: x[1], reverse=True)
+        distinctive_words[genre] = word_scores[:10]  # Top 10 distinctive words
+    
+    return distinctive_words
+
+# Calculate distinctive words for each genre
+distinctive_words = calculate_genre_tfidf()
+
+# Visualize for top genres
+plt.figure(figsize=(15, 10))
+
+
+for i, genre in enumerate(top_genres):
+    if genre in distinctive_words:
+        words, scores = zip(*distinctive_words[genre])
+        plt.subplot(3, 2, i+1)
+        plt.barh([word for word in words], [score for score in scores], color='steelblue')
+        plt.title(f'Most Distinctive Words in {genre}')
+        plt.tight_layout()
+
+genre_distinctive_plot = save_plot_as_base64(plt)
+display(HTML(genre_distinctive_plot))
+
+```
+
+###  Interpretation: Distinctive Language Across Genres
+This TF-IDF analysis reveals the most statistically distinctive words for each genre, highlighting terms that are uniquely characteristic rather than simply frequent. Unlike raw frequency counts which may highlight common words across all cinema, this approach identifies specialized vocabulary that differentiates each genre from others.
+For Drama, terms like "relationship," "emotional," and "struggle" emerge as uniquely characteristic, reinforcing the genre's focus on interpersonal dynamics and internal conflict. Comedy's distinctive vocabulary includes terms related to humorous situations and misunderstandings like "hilarious," "awkward," and "party," setting it apart from more serious genres.
+
+Action films show a unique emphasis on terms like "mission," "explosion," "enemy," and "agent," vocabulary rarely prominent in other genres. Crime narratives are distinguished by procedural terminology like "investigation," "detective," and "evidence," while Thriller shows a distinctive psychological vocabulary featuring terms like "suspect," "fear," and "reveal."
+
+These distinctive terms function as linguistic markers that establish genre expectations and create the specialized atmosphere each genre requires. Filmmakers employ these vocabulary patterns—consciously or unconsciously—to signal genre alignment to audiences and fulfill genre-specific storytelling conventions.
+
+# Conclusion: Reimagining Film Genre Classification
+
+## Key Findings:
+
+* Traditional genres don't reflect actual filmmaking patterns as revealed by our network and linguistic analysis
+* Drama is an oversaturated category (appearing in 65% of films), functioning more as a storytelling mode than a distinct genre
+*  Eight natural communities emerged from our data, organized by storytelling approach rather than conventional labels
+* Unexpected genre combinations (Animation+Adventure, Documentary+Music) occur at rates far exceeding random chance
+
+## Proposed Alternative Classification Framework:
+1. Primary Storytelling Approach
+* Character-Driven: Films focused on personal development and relationships
+    *Examples: Marriage Story, Moonlight, Little Women*
+* Spectacle-Driven: Films emphasizing visual experiences and extraordinary events
+    *Examples: Avatar, Mad Max: Fury Road, Spider-Man: Into the Spider-Verse*
+* Information-Driven: Films centered on conveying facts or historical events
+    *Examples: Spotlight, The Social Network, Apollo 13*
+* Tension-Driven: Films creating anxiety and suspense
+    *Examples: Get Out, Parasite, The Silence of the Lambs* 
+2. Emotional Tone Spectrum
+* Serious to Humorous
+* Realistic to Fantastical
+* Optimistic to Pessimistic
+3. Setting Classification
+* Contemporary Urban
+* Historical Period
+* Futuristic
+* Fantasy Realm
+* Rural/Wilderness
+
+## Benefits of This New Framework:
+This alternative approach would better serve filmmakers, audiences, and streaming platforms by more accurately representing how stories are constructed and experienced. Rather than forcing complex narratives into increasingly outdated categories, it acknowledges the fluid, multidimensional nature of contemporary cinema while still providing meaningful organization for discovery and analysis.
+
+Our data-driven analysis strongly suggests film categorization should evolve beyond traditional genres toward a more nuanced system reflecting the actual creative and thematic relationships in modern filmmaking.
