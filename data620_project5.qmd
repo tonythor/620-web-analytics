@@ -1,6 +1,6 @@
 ---
 title: "IMDB Genre Analysis Project"
-author: "Tony and Mark"
+author: "Tony Fraser and Mark Gonsalves"
 date: "April 26, 2025"
 format:
   html:
@@ -15,12 +15,15 @@ execute:
 
 # Introduction: Beyond Traditional Genre Classification
 
+We've been doing movie genres wrong for a long time, and we can do better—our math proves it. Skip all the fancy algorithms and number-crunching and jump to the conclusion to see what film classification should really look like, or read on and enjoy our final paper for 620 Social Network Analysis.
+
 Film classification has long relied on a set of traditional genres that emerged organically throughout cinema history. These categories—Drama, Comedy, Action, Horror, and others—serve as a navigational framework for audiences and industry professionals alike. Yet in today's complex cinematic landscape, these conventional labels increasingly fail to capture the nuanced relationships between films or accurately reflect how stories are crafted and experienced.
 
 This research project applies advanced computational methods to investigate whether traditional film genres accurately represent contemporary filmmaking practices. By combining network science and natural language processing, we analyze a comprehensive dataset of over 3,600 films released since 2000, examining both the structural relationships between genres and the linguistic patterns in plot descriptions.
 Our dual methodological approach offers complementary perspectives: network analysis reveals how genres interconnect through co-occurrence patterns, while text analysis uncovers the distinctive linguistic signatures that characterize different film categories. This combination allows us to move beyond anecdotal observations about genre hybridization to identify statistically significant patterns in how films are actually classified and described.
 
 The findings suggest that the current genre system suffers from significant limitations, including the oversaturation of certain categories (particularly Drama) and the failure to recognize natural storytelling communities that cross traditional genre boundaries. Based on these insights, we propose an alternative classification framework organized around storytelling approaches rather than conventional genre labels—a system that better reflects the creative and thematic relationships in modern cinema.
+
 
 ```{python}
 #| code-fold: true
@@ -934,35 +937,94 @@ These distinctive terms function as linguistic markers that establish genre expe
 
 # Conclusion: Reimagining Film Genre Classification
 
-## Key Findings:
+## Key Findings
+Our network and linguistic analysis revealed that traditional genre categories inadequately capture how films actually cluster based on creative and thematic relationships. Most notably:
 
-* Traditional genres don't reflect actual filmmaking patterns as revealed by our network and linguistic analysis
-* Drama is an oversaturated category (appearing in 65% of films), functioning more as a storytelling mode than a distinct genre
-*  Eight natural communities emerged from our data, organized by storytelling approach rather than conventional labels
-* Unexpected genre combinations (Animation+Adventure, Documentary+Music) occur at rates far exceeding random chance
+* Drama is an oversaturated category, appearing in 65% of films and functioning more as a storytelling mode than a distinct genre
+* Natural communities emerge from data, revealing storytelling patterns rather than conventional labels
+* Unexpected genre combinations (like Animation+Adventure, Documentary+Music) occur at rates far exceeding random chance
+* Linguistic patterns within genres show distinctive vocabularies that reflect their storytelling priorities
 
 ## Proposed Alternative Classification Framework:
-1. Primary Storytelling Approach
-* Character-Driven: Films focused on personal development and relationships
-    *Examples: Marriage Story, Moonlight, Little Women*
-* Spectacle-Driven: Films emphasizing visual experiences and extraordinary events
-    *Examples: Avatar, Mad Max: Fury Road, Spider-Man: Into the Spider-Verse*
-* Information-Driven: Films centered on conveying facts or historical events
-    *Examples: Spotlight, The Social Network, Apollo 13*
-* Tension-Driven: Films creating anxiety and suspense
-    *Examples: Get Out, Parasite, The Silence of the Lambs* 
-2. Emotional Tone Spectrum
-* Serious to Humorous
-* Realistic to Fantastical
-* Optimistic to Pessimistic
-3. Setting Classification
-* Contemporary Urban
-* Historical Period
-* Futuristic
-* Fantasy Realm
-* Rural/Wilderness
+Based on our data analysis, we propose a new multi-dimensional classification system that reflects actual filmmaking patterns:
 
-## Benefits of This New Framework:
-This alternative approach would better serve filmmakers, audiences, and streaming platforms by more accurately representing how stories are constructed and experienced. Rather than forcing complex narratives into increasingly outdated categories, it acknowledges the fluid, multidimensional nature of contemporary cinema while still providing meaningful organization for discovery and analysis.
+### Primary Categories (Based on Identified Communities)
 
-Our data-driven analysis strongly suggests film categorization should evolve beyond traditional genres toward a more nuanced system reflecting the actual creative and thematic relationships in modern filmmaking.
+1. Character Journey Narratives
+    - Personal Transformation
+    - Relationship Drama
+    - Family Saga
+    - Coming of Age
+2. Reality-Based Narratives
+    - Historical Event
+    - True Crime
+    - Sports Story
+    - Political Exposé
+3. High-Concept Adventures
+    - Hero's Journey
+    - Survival Challenge
+    - World-Building Epic
+    - Visual Spectacle
+4. Tension-Based Narratives
+    - Psychological Suspense
+    - Supernatural Threat
+    - Crime Procedural
+    - Conspiracy
+5.  Distinct Specialized Categories
+    - Western Frontier
+    - Musical Performance
+    - Adult Relationships
+
+### Secondary Tags (Applied as needed)
+
+* Setting: Ancient World, Medieval, Renaissance, WWII, Cold War, Near Future, Far Future, etc.
+* Tone: Inspirational, Satirical, Nihilistic, Nostalgic, Whimsical, etc.
+ Audience: Family, Young Adult, Mature Themes
+
+### Reclassification Examples
+
+To demonstrate how this system would work in practice, here's how ten iconic films would be reclassified:
+
+1. Titanic (1997)
+    - Traditional: Drama, Romance, History
+    - New System: Relationship Drama + Historical Event + Setting: Early 20th Century + Tone: Tragic Romance
+2. Apocalypse Now (1979)
+    - Traditional: Drama, War
+    - New System: Personal Transformation + Historical Event + Setting: Vietnam War + Tone: Nihilistic
+3. The Godfather (1972)
+    - Traditional: Crime, Drama
+    - New System: Family Saga + True Crime + Setting: Post-WWII America + Tone: Tragic
+4. Star Wars (1977)
+    - Traditional: Action, Adventure, Fantasy, Sci-Fi
+    - New System: Hero's Journey + Setting: Far Future + Tone: Mythic
+5. The Silence of the Lambs (1991)
+    - Traditional: Crime, Drama, Thriller
+    - New System: Psychological Suspense + Crime Procedural + Tone: Disturbing
+6. Parasite (2019)
+    - Traditional: Drama, Thriller
+    - New System: Family Saga + Psychological Suspense + Setting: Contemporary Urban + Tone: Satirical
+7. Coco (2017)
+    - Traditional: Animation, Adventure, Comedy
+    - New System: World-Building Epic + Family Saga + Setting: Contemporary Mexico + Tone: Emotional
+8. Get Out (2017)
+    - Traditional: Horror, Mystery, Thriller
+    - New System: Psychological Suspense + Tone: Satirical + Setting: Contemporary Suburban
+9. The Social Network (2010)
+    - Traditional: Biography, Drama
+    - New System: True Story + Personal Transformation + Setting: Early Internet Era + Tone: Critical
+10. La La Land (2016)
+    - Traditional: Comedy, Drama, Musical
+    - New System: Relationship Drama + Musical Performance + Setting: Contemporary Los Angeles + Tone: Nostalgic
+
+
+
+## Benefits of This New Framework
+This multi-dimensional classification system offers several advantages:
+
+* Greater precision in matching viewer preferences to content
+* Reduced oversaturation of broad categories like "Drama"
+* Recognition of natural storytelling patterns identified through data analysis
+* Flexibility to accommodate hybrid films without forcing them into ill-fitting categories
+* More nuanced discovery for streaming platforms and recommendation algorithms
+
+By adopting this data-driven approach to classification, the film industry could better serve both creators and audiences, acknowledging the complex, multifaceted nature of contemporary cinema while still providing meaningful organization for discovery and analysis.
