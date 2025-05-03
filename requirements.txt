@@ -12,3 +12,5 @@ jupyter
 pyarrow
 folium
 wordcloud
+networkx
+python-dotenv
